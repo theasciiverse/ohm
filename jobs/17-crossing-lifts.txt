@@ -1,0 +1,36 @@
+# A bleeder: a resistor across C lets it empty when the train has gone. It also makes a divider
+# with R1, so TP1 now stops short of 4.5 V: the bleeder must be at least twice R1 for TP1 to
+# reach 3 V at all. 33k: down in 1.6 s, up in 4.1 s. 22k is too slow down (2.4 s), 47k too slow
+# up (6.2 s), 10k never gets to 3 V, and with none the barrier never lifts.
+name: Crossing lifts
+customer: Mr Nilsson
+fee: 45
+note: The barrier waits now, thank you. But it never lifts again after the train has gone! It should be up within five seconds of the train leaving, which is when TP1 falls below 1 V, and still drop 0.8 to 2 seconds after a train comes.
+battery: 0
+book: discharge
+part: B battery 4.5 0.45 N
+part: S switch on W
+part: R resistor 10k 0.25 W
+part: C cap 100u 16 N
+part: T testpoint W
+drawer: resistor 10k 0.25 x1 0.10
+drawer: resistor 22k 0.25 x1 0.10
+drawer: resistor 33k 0.25 x1 0.10
+drawer: resistor 47k 0.25 x1 0.10
+drawer: resistor 100k 0.25 x1 0.10
+case: train comes: TP1 to 3 V in 0.8-2 s | set SW1 on | reaches TP1 3 0.8 2
+case: train leaves: TP1 below 1 V within 5 s | set SW1 on | at 4 set SW1 off | reaches TP1 1 0 5
+master-part: Q resistor 33k 0.25 N
+master: ..........
+master: .┌─S─R─┬┬T
+master: .B.....CQ.
+master: .└─────┴┘.
+master: ..........
+master: ..........
+grid:
+..........
+...S.R...T
+.B.....C..
+..........
+..........
+..........

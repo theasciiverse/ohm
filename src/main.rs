@@ -6,6 +6,7 @@
 //!   cargo run --release -- --bench               # the printed bench: numbers and hints as text
 //!   cargo run --release -- --shot desk [--demo] [--secs S] [--overlay drawers|report|bookN|help|binder]
 //!                                [--cursor X,Y] (a tile of the job's board) [--job N] [--cells]
+//!                                [--master] (the old master's solution on the desk)
 //!                                [--grow inbox|multimeter|scope|datasheet] [--sandbox]
 //!   cargo run --release -- --shot title --cells | python3 tools/shot.py title.png
 //!   cargo run --release -- --shot gallery --cells | python3 tools/shot.py gallery.png
@@ -127,6 +128,9 @@ fn shot(screen: &str, size: Option<(u16, u16)>, demo: bool, secs: f64, overlay: 
         }
         if std::env::args().any(|a| a == "--sandbox") {
             app.enter_sandbox();
+        }
+        if std::env::args().any(|a| a == "--master") {
+            app::show_master(&mut app);
         }
         if demo {
             app::build_bike_lamp(&mut app);

@@ -28,6 +28,12 @@ const LED_I_REF: f64 = 0.010;
 /// (the square of 1.6 times its rating).
 const FUSE_TAU: f64 = 0.25;
 const FUSE_LIMIT: f64 = 2.56;
+/// An electrolytic's stress follows its load with this time constant, seconds. It vents at
+/// a load of 1: past its surge voltage (1.15 times its rating), or reversed by more than 1.5 V,
+/// both from Vishay's "Aluminum Capacitors: Introduction" (document 25001).
+const CAP_TAU: f64 = 0.5;
+const CAP_SURGE: f64 = 1.15;
+const CAP_REVERSE: f64 = 1.5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Node(usize);
@@ -91,7 +97,9 @@ enum Kind {
     Fuse { ohms: f64, amps: f64 },
     /// Anode `a`, cathode `b`, the junction between `mid` and `b`.
     Led(Led),
-    Capacitor { farads: f64 },
+    /// `volts` is an electrolytic's rating, positive terminal `a`; infinite for a capacitor
+    /// that has no polarity and never fails (a ceramic).
+    Capacitor { farads: f64, volts: f64 },
 }
 
 #[derive(Clone, Debug)]
@@ -204,8 +212,25 @@ impl Circuit {
         self.add(Kind::Led(led), anode, cathode, true, false)
     }
 
+    /// A capacitor that never fails (a ceramic).
     pub fn capacitor(&mut self, a: Node, b: Node, farads: f64) -> PartId {
-        self.add(Kind::Capacitor { farads }, a, b, false, false)
+        self.electrolytic(a, b, farads, f64::INFINITY)
+    }
+
+    /// An electrolytic rated `volts`, positive terminal `a`: it vents (open) when held past
+    /// its surge voltage or reversed.
+    pub fn electrolytic(&mut self, pos: Node, neg: Node, farads: f64, volts: f64) -> PartId {
+        self.add(Kind::Capacitor { farads, volts }, pos, neg, false, false)
+    }
+
+    /// A capacitor's voltage, positive terminal over negative.
+    pub fn cap_voltage(&self, id: PartId) -> f64 {
+        self.parts[id.0].cap_v
+    }
+
+    /// Sets a capacitor's voltage, as if charged that far beforehand.
+    pub fn set_cap_voltage(&mut self, id: PartId, v: f64) {
+        self.parts[id.0].cap_v = v;
     }
 
     pub fn set_switch(&mut self, id: PartId, closed: bool) {
@@ -284,6 +309,7 @@ impl Circuit {
     /// Heats every part toward its load; true if anything burnt open.
     fn heat_up(&mut self, dt: f64) -> bool {
         let mut any = false;
+        let x = &self.x;
         for p in &mut self.parts {
             if p.burnt {
                 continue;
@@ -297,6 +323,10 @@ impl Circuit {
                 // opens at 2.1 times (within 30 minutes there), at 2.75 times in 0.05 to 2 s,
                 // at 4 times in 0.01 to 0.3 s and at 10 times within 20 ms.
                 Kind::Fuse { amps, .. } => ((p.current / amps).powi(2), FUSE_TAU, FUSE_LIMIT),
+                Kind::Capacitor { volts, .. } if volts.is_finite() => {
+                    let v = vdiff(x, p.a, p.b);
+                    ((v / (CAP_SURGE * volts)).max(-v / CAP_REVERSE).max(0.0).powi(2), CAP_TAU, 1.0)
+                }
                 _ => continue,
             };
             p.heat += (load - p.heat) * (1.0 - (-dt / tau).exp());
@@ -413,7 +443,7 @@ impl Circuit {
                 m.g(p.mid, p.b, gd);
                 m.isource(p.mid, p.b, id - gd * p.vd);
             }
-            Kind::Capacitor { farads } => {
+            Kind::Capacitor { farads, .. } => {
                 if let Mode::Step(dt) = mode {
                     let g = farads / dt;
                     m.g(p.a, p.b, g);
@@ -440,7 +470,7 @@ impl Circuit {
                         if p.cc { limit } else { -x[base + p.branch.unwrap()] }
                     }
                     Kind::Led(led) => (v - vdiff(x, p.mid, p.b)) / led.rs,
-                    Kind::Capacitor { farads } => match mode {
+                    Kind::Capacitor { farads, .. } => match mode {
                         Mode::Step(dt) => farads / dt * (v - p.cap_v),
                         Mode::Dc => 0.0,
                     },
@@ -704,6 +734,28 @@ mod tests {
         }
         assert!(!c.burnt(led));
         assert!(c.heat(led) > 0.9 && c.heat(led) < 1.5, "{}", c.heat(led));
+    }
+
+    #[test]
+    fn an_electrolytic_holds_its_surge_voltage_and_vents_past_it_or_reversed() {
+        let run = |volts: f64, rating: f64| {
+            let mut c = Circuit::new();
+            let pos = c.node();
+            let a = c.node();
+            c.battery(pos, GROUND, volts, 0.0);
+            c.resistor(pos, a, 10.0);
+            let cap = c.electrolytic(a, GROUND, 100e-6, rating);
+            for _ in 0..5000 {
+                c.step(0.001).unwrap();
+            }
+            c.burnt(cap)
+        };
+        assert!(!run(12.0, 16.0));
+        assert!(!run(10.0, 10.0));
+        assert!(!run(11.0, 10.0), "within its surge voltage");
+        assert!(run(12.0, 10.0));
+        assert!(run(-4.5, 16.0), "reversed");
+        assert!(!run(-1.0, 16.0), "a volt backwards is tolerated");
     }
 
     #[test]

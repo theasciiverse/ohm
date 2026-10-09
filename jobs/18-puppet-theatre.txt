@@ -1,0 +1,41 @@
+# Everything in the chapter at once: R1 charges C slowly (still dim after 0.3 s), C feeds the
+# LED through R2 (bright by 5 s), and when SW1 opens C empties through R2 and the LED (a fade of
+# 2 to 8 s). Many builds pass; 470, 2200 uF and 470 is the cheapest. Without R1 the lights snap
+# on; without C they snap both ways.
+name: Puppet theatre
+customer: Elsa, 8
+fee: 60
+note: For my puppet theatre! When I switch the lights on they should come up slowly like in a real theatre: still dim after a moment, bright (5 to 20 mA) by the time the curtain opens. And when the show ends they should fade away slowly, two to eight seconds, not snap off.
+battery: 625
+book: time-constant, discharge
+part: B battery 9 1.5 N
+part: S switch on W
+part: L led red N
+drawer: resistor 220 0.25 x2 0.10
+drawer: resistor 470 0.25 x2 0.10
+drawer: resistor 1k 0.25 x2 0.10
+drawer: cap 1000u 16 x1 0.70
+drawer: cap 2200u 16 x1 1.20
+drawer: cap 4700u 16 x1 2.00
+case: switched on: still dim at 0.3 s | set SW1 on | lit LED1 0 2m at 0.3
+case: curtain up: 5-20 mA at 5 s | set SW1 on | lit LED1 5m 20m at 5
+case: the end: fades in 2-8 s | set SW1 on | at 6 set SW1 off | lasts LED1 2 8
+life: curtain up: 5-20 mA at 5 s
+hint-parts: The biggest capacitor isn't needed: a middling one with middling resistors does it all.
+hint-battery: The more resistance in the LED's path, the less it draws, as long as it stays bright enough.
+master-part: A resistor 470 0.25 W
+master-part: C cap 2200u 16 N
+master-part: R resistor 470 0.25 W
+master: ..........
+master: .┌S─A┬─R┐.
+master: .B...C..L.
+master: .└───┴──┘.
+master: ..........
+master: ..........
+grid:
+..........
+..S.......
+.B......L.
+..........
+..........
+..........

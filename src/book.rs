@@ -32,6 +32,9 @@ pub const PAGES: &[(&str, &str)] = &[
     ("potentiometers", include_str!("../book/12-potentiometers.txt")),
     ("sensors", include_str!("../book/13-sensors.txt")),
     ("fuses", include_str!("../book/14-fuses.txt")),
+    ("capacitors", include_str!("../book/15-capacitors.txt")),
+    ("time-constant", include_str!("../book/16-time-constant.txt")),
+    ("discharge", include_str!("../book/17-discharge.txt")),
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -176,5 +179,29 @@ mod tests {
         assert!(v > 2.5 && v < 3.0, "{v}");
         let i = reads("fuses", "LP1").amps;
         assert!((i - 1.47).abs() < 0.02, "{i}");
+        // Chapter 3 runs in time: each example as its page tells it.
+        let run = |id: &str, set: &[(&str, bool)], secs: f64, label: &str| {
+            let p = Page::all().into_iter().find(|p| p.id == id).unwrap();
+            let mut b = p.board.unwrap();
+            for (l, on) in set {
+                let i = b.part(l).unwrap();
+                b.parts[i].kind = crate::circuit::Kind::Switch { closed: *on };
+            }
+            let mut live = Live::build(&b);
+            for _ in 0..(secs / 0.001f64).round() as usize {
+                live.sim.step(0.001).unwrap();
+            }
+            (live, b, label.to_string())
+        };
+        let reading = |(live, b, label): (Live, crate::circuit::Board, String)| live.reading(&b, b.part(&label).unwrap());
+        // Capacitors: switched on, the LED is lit; the capacitor holds about 4.5 V less the
+        // battery's own drop.
+        assert!(reading(run("capacitors", &[], 1.0, "LED1")).amps > 0.008);
+        // The time constant: 10k and 100 uF is 1 s; after it, 63% of the 4.5 V.
+        let v = reading(run("time-constant", &[("SW1", true)], 1.0, "TP1")).volts;
+        assert!((v - 4.5 * 0.632).abs() < 0.05, "{v}");
+        // Discharge: 10k in, 33k across, stops at 3.45 V.
+        let v = reading(run("discharge", &[], 6.0, "TP1")).volts;
+        assert!((v - 3.45).abs() < 0.02, "{v}");
     }
 }

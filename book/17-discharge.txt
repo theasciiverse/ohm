@@ -1,0 +1,17 @@
+title: Emptying a capacitor
+unlock: crossing-lifts
+para: A charged capacitor with nothing across it keeps its charge: only its own slow leak empties it. That is why a big capacitor in an old television or a flash gun can still bite long after it is switched off.
+para: A bleeder resistor across it gives the charge a way out, emptying it in a time set by the bleeder times the capacitance.
+para: But a bleeder also makes a divider with the resistor that charges the capacitor, so it never fills all the way: 10 kΩ in, 33 kΩ across, from 4.5 V, stops at 4.5 × 33 / 43 = 3.45 V. And it fills a little faster, as if through the two resistors side by side. The bigger the bleeder, the fuller and the slower to empty; it has to be at least twice the charging resistor to get past two thirds at all.
+para: Here the switch is on: flip it off and TP1 falls away through R2.
+source: Paul Horowitz and Winfield Hill, The Art of Electronics (3rd edition, 2015), sections 1.2.5 and 1.4.2: a divider's Thévenin equivalent, and an RC circuit driven through one.
+part: B battery 4.5 0.45 N
+part: S switch on W
+part: R resistor 10k 0.25 W
+part: C cap 100u 16 N
+part: Q resistor 33k 0.25 N
+part: T testpoint W
+grid:
+┌─S─R┬┬T
+B....CQ.
+└────┴┘.

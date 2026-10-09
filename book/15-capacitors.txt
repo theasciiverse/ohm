@@ -1,0 +1,17 @@
+title: Capacitors
+unlock: standlight
+para: A capacitor is two metal plates with a thin insulator between them. Current can't cross the insulator, but it can pile charge up on one plate while it leaves the other: the capacitor charges. Take the battery away and the charge stays, ready to flow back out.
+para: How much it holds for each volt is its capacitance, in farads. A farad is huge, so real ones are marked in microfarads (µF, millionths) and nanofarads (nF). Twice the capacitance holds twice the charge, so a light it feeds stays on twice as long. Two side by side add up: 220 µF and 220 µF make 440 µF.
+para: The big ones, from about 1 µF up, are electrolytics. They are polarised: the leg on the striped side goes to minus. Each is rated for a voltage: it takes that and 15% more for a moment, but held above it, or put in backwards by more than a volt and a half, it heats up and vents, often with a bang.
+para: Flip the switch off here and watch the LED: the capacitor keeps it lit, fading as it empties.
+source: Paul Horowitz and Winfield Hill, The Art of Electronics (3rd edition, 2015), section 1.4.1, Capacitors.
+source: Vishay, Aluminum Capacitors: Introduction (document 25001): the surge voltage is 1.15 times the rated voltage up to 250 V, and a reversed voltage above 1.5 V must not occur.
+part: B battery 4.5 0.45 N
+part: S switch on W
+part: C cap 1000u 16 N
+part: R resistor 220 0.25 W
+part: L led red N
+grid:
+┌─S┬─R─┐
+B..C...L
+└──┴───┘

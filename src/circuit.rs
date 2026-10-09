@@ -95,7 +95,9 @@ pub enum Kind {
     /// A push button: closed only while held.
     Button { held: bool },
     Led(Colour),
-    Capacitor { farads: f64 },
+    /// From 1 µF up an electrolytic: polarised (pin `a` is +), rated `volts`, vents if
+    /// held past its surge voltage or reversed. Below 1 µF a ceramic, which never fails here.
+    Capacitor { farads: f64, volts: f64 },
     /// A fixed point a job measures at; one pin.
     TestPoint,
     /// A fast-acting fuse: carries its rating, opens well above it.
@@ -151,6 +153,11 @@ impl Kind {
         }
     }
 
+    /// An electrolytic: it has a + leg.
+    pub fn polarised(&self) -> bool {
+        matches!(*self, Kind::Capacitor { farads, .. } if farads >= 1e-6)
+    }
+
     pub fn is_source(&self) -> bool {
         matches!(self, Kind::Battery { .. } | Kind::Supply { .. })
     }
@@ -170,6 +177,8 @@ impl Kind {
             (Kind::Battery { .. } | Kind::Supply { .. }, _) => "- terminal",
             (Kind::Led(_), 0) => "long leg (anode, +)",
             (Kind::Led(_), _) => "short leg (cathode, -)",
+            (k @ Kind::Capacitor { .. }, 0) if k.polarised() => "+ leg",
+            (k @ Kind::Capacitor { .. }, _) if k.polarised() => "- leg (the striped side)",
             (Kind::Pot { .. }, 0) => "first end",
             (Kind::Pot { .. }, 1) => "other end",
             (Kind::Pot { .. }, _) => "wiper (middle leg)",
@@ -575,6 +584,8 @@ pub struct Live {
     ids: Vec<Option<PartId>>,
     /// A potentiometer's second half (wiper to `b`); its first half is in `ids`.
     lower: Vec<Option<PartId>>,
+    /// Every capacitor's tile and part index, to carry its charge over a rebuild.
+    caps: Vec<(Pos, usize)>,
 }
 
 impl Live {
@@ -585,6 +596,7 @@ impl Live {
         let nodes: Vec<Node> = (0..net.nets).map(|n| if Some(n) == ground { GROUND } else { sim.node() }).collect();
         let mut ids = Vec::new();
         let mut lower = Vec::new();
+        let mut caps = Vec::new();
         for (i, part) in b.parts.iter().enumerate() {
             lower.push(None);
             let pin = |k: usize| nodes[net.pin_net[i][k]];
@@ -601,7 +613,10 @@ impl Live {
                 Kind::Switch { closed } => Some(sim.switch(pin(0), pin(1), closed)),
                 Kind::Button { held } => Some(sim.switch(pin(0), pin(1), held)),
                 Kind::Led(c) => Some(sim.led(pin(0), pin(1), c.led())),
-                Kind::Capacitor { farads } => Some(sim.capacitor(pin(0), pin(1), farads)),
+                Kind::Capacitor { farads, volts } => {
+                    caps.push((part.pos, i));
+                    Some(if part.kind.polarised() { sim.electrolytic(pin(0), pin(1), farads, volts) } else { sim.capacitor(pin(0), pin(1), farads) })
+                }
                 Kind::TestPoint => None,
                 Kind::Fuse { amps } => Some(sim.fuse(pin(0), pin(1), FUSE_OHMS, amps)),
                 // GL5528: 100 mW.
@@ -620,7 +635,19 @@ impl Live {
             }
             ids.push(id);
         }
-        Live { net, sim, nodes, ids, lower }
+        Live { net, sim, nodes, ids, lower, caps }
+    }
+
+    /// Keeps the charge of every capacitor that sat on the same tile in `old`, so editing the
+    /// board or turning a knob doesn't empty them.
+    pub fn keep_charge(&mut self, old: &Live) {
+        for &(pos, i) in &self.caps {
+            if let Some(&(_, j)) = old.caps.iter().find(|(p, _)| *p == pos)
+                && let (Some(id), Some(was)) = (self.ids[i], old.ids[j])
+            {
+                self.sim.set_cap_voltage(id, old.sim.cap_voltage(was));
+            }
+        }
     }
 
     /// Flips a switch or a button in the running circuit, without rebuilding it.

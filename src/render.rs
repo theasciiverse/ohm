@@ -243,10 +243,16 @@ const CERAMIC_V: Art = Art {
     f: ["  O  ", "  O  ", "  O  "],
     b: ["  L  ", "     ", "  L  "],
 };
-const ELECTROLYTIC: Art = Art {
+// An electrolytic's sleeve, its + marked by the leg it faces, the stripe on its - side.
+const ELECTROLYTIC_H: Art = Art {
     g: [" ▗▄▖ ", "─▐+▌─", " ▝▀▘ "],
     f: [" EEE ", "LESML", " EEE "],
     b: ["     ", "  E  ", "     "],
+};
+const ELECTROLYTIC_V: Art = Art {
+    g: [" ▗+▖ ", " ▐█▌ ", " ▝▀▘ "],
+    f: [" ESE ", " EEE ", " MMM "],
+    b: ["  L  ", "     ", "  L  "],
 };
 const TESTPOINT_H: Art = Art {
     g: ["     ", "──O  ", "     "],
@@ -415,9 +421,10 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
         (Kind::Switch { closed: false }, false) => &SWITCH_OPEN_V,
         (Kind::Switch { closed: true }, false) => &SWITCH_CLOSED_V,
         (Kind::Button { .. }, _) => &BUTTON,
-        (Kind::Capacitor { farads }, true) if farads < 1e-6 => &CERAMIC_H,
-        (Kind::Capacitor { farads }, false) if farads < 1e-6 => &CERAMIC_V,
-        (Kind::Capacitor { .. }, _) => &ELECTROLYTIC,
+        (Kind::Capacitor { .. }, true) if !kind.polarised() => &CERAMIC_H,
+        (Kind::Capacitor { .. }, false) if !kind.polarised() => &CERAMIC_V,
+        (Kind::Capacitor { .. }, true) => &ELECTROLYTIC_H,
+        (Kind::Capacitor { .. }, false) => &ELECTROLYTIC_V,
         (Kind::TestPoint, true) => &TESTPOINT_H,
         (Kind::TestPoint, false) => &TESTPOINT_V,
         (Kind::Supply { .. }, _) => &SUPPLY,
@@ -482,7 +489,7 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
             'K' => (26, 26, 28),
             'W' => (230, 230, 225),
             'O' => (210, 120, 40),
-            'E' => (40, 70, 150),
+            'E' => warm((40, 70, 150)),
             'M' => (190, 200, 220),
             'I' => (60, 72, 78),
             'Q' => if look.burnt { (30, 26, 24) } else { (210, 210, 200) },
@@ -1840,16 +1847,31 @@ pub fn drawer_overlay(buf: &mut Buffer, l: &Layout, slots: &[Slot], sel: usize, 
             None => draw_copper(buf, art_x, r.y + 1, Dir::E.bit() | Dir::W.bit() | Dir::S.bit(), COPPER_HOT, BOARD),
         }
         let tx = r.x + 7;
-        // The kind of part on the first line, its value on the second.
-        let name_lines: Vec<String> = match slot.name.split_once(' ') {
-            Some((a, b)) => vec![a.to_string(), b.to_string()],
-            None => vec![slot.name.clone()],
-        };
-        for (k, line) in name_lines.iter().take(2).enumerate() {
-            bold(buf, tx, r.y + 1 + k as u16, line, if picked { AMBER } else { TEXT }, BOARD);
+        // The kind of part on the first line, its value on the second. A name that needs a
+        // third line ("Cap", "1000 µF", "16 V") gets it, and the count shares the price's row.
+        let avail = (r.x + r.width).saturating_sub(tx + 1) as usize;
+        let mut lines: Vec<String> = Vec::new();
+        for (n, w) in slot.name.split(' ').enumerate() {
+            match lines.last_mut() {
+                Some(l) if n > 1 && l.chars().count() + 1 + w.chars().count() <= avail => {
+                    l.push(' ');
+                    l.push_str(w);
+                }
+                _ => lines.push(w.to_string()),
+            }
         }
-        text(buf, tx, r.y + 3, &slot.count, DIM, BOARD);
-        text(buf, tx, r.y + 4, &slot.price, AMBER, BOARD);
+        // The value always starts the second line, even if it would fit beside the kind.
+        let col = if picked { AMBER } else { TEXT };
+        for (k, line) in lines.iter().take(3).enumerate() {
+            bold(buf, tx, r.y + 1 + k as u16, line, col, BOARD);
+        }
+        if lines.len() > 2 {
+            text(buf, tx, r.y + 4, &slot.count, DIM, BOARD);
+            text(buf, tx + slot.count.chars().count() as u16 + 1, r.y + 4, &slot.price, AMBER, BOARD);
+        } else {
+            text(buf, tx, r.y + 3, &slot.count, DIM, BOARD);
+            text(buf, tx, r.y + 4, &slot.price, AMBER, BOARD);
+        }
         text(buf, r.x + 1, r.y + 4, &format!("{i}"), DIM, BOARD);
     }
 }
@@ -2150,6 +2172,12 @@ fn shelf_art(id: &str) -> ([&'static str; 4], &'static str) {
         "light-meter" => (["..KK....", "KKKKKKKK", "KKGLLGKK", "KKKKKKKK"], "light meter"),
         "fridge-gauge" => ([".WWWWWW.", ".WWWWWW.", ".WGWWgW.", ".WWWWWW."], "fridge"),
         "trailer-fuse" => (["........", "GGGGGGG.", "GGGGGGGt", "..K...K."], "trailer"),
+        "standlight" => (["..KKKK..", ".KrrrrK.", ".KrrrrK.", "..KKKK.."], "rear lamp"),
+        "courtesy-light" => (["GGGGGGGG", "..GLLG..", "..LLLL..", "........"], "van light"),
+        "darkroom-sign" => (["KKKKKKKK", "KrrrrrrK", "KKKKKKKK", "...KK..."], "darkroom"),
+        "level-crossing" => (["r.......", "KRWRWRWR", "K.......", "K......."], "crossing"),
+        "crossing-lifts" => (["r....R..", "K..W....", "KR......", "K......."], "barrier"),
+        "puppet-theatre" => (["RRRRRRRR", "RR.LL.RR", "RR....RR", "PPPPPPPP"], "theatre"),
         _ => (["........", ".GGGGGG.", ".GGGGGG.", "........"], "gadget"),
     }
 }
@@ -2354,9 +2382,11 @@ pub fn gallery(buf: &mut Buffer, area: Rect) {
         ("switch vert", Kind::Switch { closed: true }, Dir::N, Look::default()),
         ("button", Kind::Button { held: false }, Dir::W, Look::default()),
         ("button held", Kind::Button { held: true }, Dir::W, Look::default()),
-        ("cap 100n", Kind::Capacitor { farads: 100e-9 }, Dir::W, Look::default()),
-        ("cap 100n vert", Kind::Capacitor { farads: 100e-9 }, Dir::N, Look::default()),
-        ("cap 100u", Kind::Capacitor { farads: 100e-6 }, Dir::W, Look::default()),
+        ("cap 100n", Kind::Capacitor { farads: 100e-9, volts: f64::INFINITY }, Dir::W, Look::default()),
+        ("cap 100n vert", Kind::Capacitor { farads: 100e-9, volts: f64::INFINITY }, Dir::N, Look::default()),
+        ("cap 100u", Kind::Capacitor { farads: 100e-6, volts: 25.0 }, Dir::W, Look::default()),
+        ("cap 100u vert", Kind::Capacitor { farads: 100e-6, volts: 25.0 }, Dir::N, Look::default()),
+        ("cap vented", Kind::Capacitor { farads: 100e-6, volts: 25.0 }, Dir::W, Look { burnt: true, ..Look::default() }),
         ("test point", Kind::TestPoint, Dir::W, Look::default()),
         ("test point N", Kind::TestPoint, Dir::N, Look::default()),
         ("supply", Kind::Supply { volts: 5.0, limit: 0.1 }, Dir::W, Look::default()),

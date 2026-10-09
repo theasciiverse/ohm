@@ -1,0 +1,17 @@
+title: The time constant
+unlock: courtesy-light
+para: A capacitor charging through a resistor fills fast at first and slower and slower after, because the fuller it gets, the less voltage is left across the resistor to push current in. Emptying goes the same way.
+para: The time it takes is set by R × C, the time constant, in seconds when R is in ohms and C in farads. 10 kΩ and 100 µF: 10,000 × 0.0001 = 1 second.
+para: After one time constant a charging capacitor is 63% full; after two, 86%; after three, 95%; after five it is as good as full. Emptying, 37% is left after one. To get two thirds of the way takes 1.1 time constants, the figure the 555 timer chip is built on.
+para: Bigger R or bigger C, longer time: a bigger resistor lets a smaller capacitor do the same job. Flip the switch on here and watch TP1 climb.
+source: Paul Horowitz and Winfield Hill, The Art of Electronics (3rd edition, 2015), section 1.4.2, RC circuits: the exponential charge and discharge with time constant RC.
+source: Texas Instruments, NE555 precision timer datasheet: the one-shot's pulse lasts 1.1 R C, the time to charge to two thirds of the supply.
+part: B battery 4.5 0.45 N
+part: S switch off W
+part: R resistor 10k 0.25 W
+part: C cap 100u 16 N
+part: T testpoint W
+grid:
+┌─S─R┬─T
+B....C..
+└────┘..

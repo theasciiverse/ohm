@@ -1,0 +1,33 @@
+# A capacitor stores charge and keeps a light going after its supply stops. The battery and SW1
+# stand in for the dynamo. Across the supply, 4700 uF keeps the LED lit about 2.8 s; 2200 uF
+# only 1.3 s. Backwards, the 16 V can vents.
+name: Standlight
+customer: Mrs Berg, Storgatan
+fee: 45
+note: The LED lamp you made is lovely, but when I stop at a crossing the dynamo stops and the lamp goes out, just as a car comes. Can it stay lit a little while after I stop? SW1 stands for the dynamo: on while I ride.
+battery: 0
+book: capacitors
+part: B battery 4.5 0.45 N
+part: S switch on W
+part: R resistor 220 0.25 W
+part: L led red N
+drawer: cap 470u 16 x1 0.50
+drawer: cap 1000u 16 x1 0.70
+drawer: cap 2200u 16 x1 1.20
+drawer: cap 4700u 16 x1 2.00
+case: riding: LED 5-20 mA | set SW1 on | lit LED1 5m 20m
+case: stopped: lit 2 s or more | set SW1 on | at 3 set SW1 off | lasts LED1 2 60
+master-part: C cap 4700u 16 N
+master: ..........
+master: .┌─S┬─R─┐.
+master: .B..C...L.
+master: .└──┴───┘.
+master: ..........
+master: ..........
+grid:
+..........
+...S..R...
+.B......L.
+..........
+..........
+..........

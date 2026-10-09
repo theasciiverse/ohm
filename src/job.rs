@@ -24,7 +24,11 @@
 //! Parts: `resistor OHMS WATTS`, `lamp OHMS WATTS`, `battery VOLTS R_INT`, `supply VOLTS LIMIT`,
 //! `switch`, `button`, `led COLOUR`, `cap FARADS`, `testpoint`. Numbers take SI suffixes (`5m`,
 //! `100u`, `4k7`). Every part on the grid is fixed. A case is a name, then settings (`battery V`,
-//! `set LABEL on|off`), then one check (`lit LABEL MIN MAX`, `dark LABEL`, `volts LABEL MIN MAX`).
+//! `set LABEL on|off|NUMBER`, `at SECONDS set LABEL ...` to change it partway), then one check
+//! (`lit LABEL MIN MAX`, `dark LABEL`, `volts LABEL MIN MAX`, `blown LABEL`; each may end in
+//! `at SECONDS`, when it reads), or a timed check counted from the last `at` (`lasts LABEL MIN
+//! MAX`: stays lit that many seconds; `reaches LABEL VOLTS MIN MAX`: gets to that voltage).
+//! `cap FARADS [VOLTS]`: from 1 µF an electrolytic, + facing the side given, rated VOLTS (25).
 
 use crate::bench::{Case, Check};
 use crate::circuit::{Board, Colour, Dir, Kind};
@@ -43,6 +47,12 @@ pub const JOBS: &[(&str, &str)] = &[
     ("light-meter", include_str!("../jobs/10-light-meter.txt")),
     ("fridge-gauge", include_str!("../jobs/11-fridge-gauge.txt")),
     ("trailer-fuse", include_str!("../jobs/12-trailer-fuse.txt")),
+    ("standlight", include_str!("../jobs/13-standlight.txt")),
+    ("courtesy-light", include_str!("../jobs/14-courtesy-light.txt")),
+    ("darkroom-sign", include_str!("../jobs/15-darkroom-sign.txt")),
+    ("level-crossing", include_str!("../jobs/16-level-crossing.txt")),
+    ("crossing-lifts", include_str!("../jobs/17-crossing-lifts.txt")),
+    ("puppet-theatre", include_str!("../jobs/18-puppet-theatre.txt")),
 ];
 
 /// The sandbox's id, for the save file.
@@ -155,7 +165,14 @@ pub fn kind(words: &[&str]) -> Result<(Kind, usize), String> {
             _ => (Kind::Switch { closed: true }, 1),
         },
         Some("button") => (Kind::Button { held: false }, 1),
-        Some("cap") => (Kind::Capacitor { farads: arg(1)? }, 2),
+        // An electrolytic's rating is optional (25 V); a ceramic below 1 µF has none.
+        Some("cap") => {
+            let farads = arg(1)?;
+            match words.get(2).map(|w| number(w)) {
+                Some(Ok(volts)) => (Kind::Capacitor { farads, volts }, 3),
+                _ => (Kind::Capacitor { farads, volts: if farads >= 1e-6 { 25.0 } else { f64::INFINITY } }, 2),
+            }
+        }
         Some("testpoint") => (Kind::TestPoint, 1),
         Some("fuse") => (Kind::Fuse { amps: arg(1)? }, 2),
         // Sensors and pots take their state as an optional last word.
@@ -194,7 +211,8 @@ pub fn kind_words(k: Kind) -> String {
         Kind::Supply { volts, limit } => format!("supply {volts} {limit}"),
         Kind::Switch { closed } => format!("switch {}", if closed { "on" } else { "off" }),
         Kind::Button { .. } => "button".into(),
-        Kind::Capacitor { farads } => format!("cap {farads}"),
+        Kind::Capacitor { farads, volts } if volts.is_finite() => format!("cap {farads} {volts}"),
+        Kind::Capacitor { farads, .. } => format!("cap {farads}"),
         Kind::TestPoint => "testpoint".into(),
         Kind::Led(c) => format!("led {}", c.name()),
         Kind::Fuse { amps } => format!("fuse {amps}"),
@@ -226,19 +244,36 @@ pub fn dir(w: &str) -> Result<Dir, String> {
 fn case(line: &str) -> Result<Case, String> {
     let mut parts = line.split('|').map(str::trim);
     let name = parts.next().unwrap_or_default().to_string();
-    let mut c = Case { name, battery: None, set: Vec::new(), check: Check::Dark { part: String::new() } };
+    let mut c = Case::steady(&name, None, Vec::new(), Check::Dark { part: String::new() });
     let mut checked = false;
+    let state = |s: &str| -> Result<f64, String> {
+        match s {
+            "on" => Ok(1.0),
+            "off" => Ok(0.0),
+            n => number(n),
+        }
+    };
     for p in parts {
-        let w: Vec<&str> = p.split_whitespace().collect();
+        let mut w: Vec<&str> = p.split_whitespace().collect();
+        // A steady check can say when it reads: `lit LED1 5m 20m at 3`.
+        if w.len() > 2 && w[w.len() - 2] == "at" && w[0] != "at" {
+            c.at = Some(number(w[w.len() - 1])?);
+            w.truncate(w.len() - 2);
+        }
         match w.as_slice() {
             ["battery", v] => c.battery = Some(number(v)?),
-            ["set", label, state] => {
-                let v = match *state {
-                    "on" => 1.0,
-                    "off" => 0.0,
-                    n => number(n)?,
-                };
-                c.set.push((label.to_string(), v));
+            ["set", label, s] => c.set.push((label.to_string(), state(s)?)),
+            ["at", t, "set", label, s] => {
+                c.events.push((number(t)?, label.to_string(), state(s)?));
+                c.events.sort_by(|a, b| a.0.total_cmp(&b.0));
+            }
+            ["lasts", label, min, max] => {
+                c.check = Check::Lasts { part: label.to_string(), min: number(min)?, max: number(max)? };
+                checked = true;
+            }
+            ["reaches", label, v, min, max] => {
+                c.check = Check::Reaches { point: label.to_string(), volts: number(v)?, min: number(min)?, max: number(max)? };
+                checked = true;
             }
             ["lit", label, min, max] => {
                 c.check = Check::Lit { part: label.to_string(), min: number(min)?, max: number(max)? };
@@ -423,7 +458,13 @@ impl Job {
             drawer.push(r(ohms, 0.25));
         }
         drawer.extend([r(100.0, 1.0), r(22.0, 2.0)]);
-        drawer.extend([100e-9, 10e-6, 100e-6, 1000e-6].map(|farads| Kind::Capacitor { farads }));
+        // A ceramic, then electrolytics at the ratings they are commonly sold in, and one
+        // 6.3 V can to find out what a rating means.
+        drawer.push(Kind::Capacitor { farads: 100e-9, volts: f64::INFINITY });
+        drawer.extend(
+            [(10e-6, 25.0), (100e-6, 25.0), (470e-6, 16.0), (1000e-6, 16.0), (2200e-6, 16.0), (4700e-6, 16.0), (1000e-6, 6.3)]
+                .map(|(farads, volts)| Kind::Capacitor { farads, volts }),
+        );
         drawer.extend([Kind::Ldr { lux: 100.0 }, Kind::Ntc { celsius: 20.0 }, Kind::Pot { ohms: 10e3, turn: 0.5 }, Kind::Pot { ohms: 1e3, turn: 0.5 }]);
         drawer.extend([0.5, 2.0, 5.0].map(|amps| Kind::Fuse { amps }));
         drawer.extend([Kind::Switch { closed: false }, Kind::Button { held: false }]);
@@ -750,4 +791,85 @@ mod tests {
         assert_eq!(bike_lamp_with(220.0), [true, true, true]);
         assert_eq!(bike_lamp_with(1000.0), [false, false, true]);
     }
+
+    fn cap(farads: f64, volts: f64) -> Kind {
+        Kind::Capacitor { farads, volts }
+    }
+    const RED: Kind = Kind::Led(crate::circuit::Colour::Red);
+    const BAT9: Kind = Kind::Battery { volts: 9.0, r_int: 1.5 };
+    const SW: Kind = Kind::Switch { closed: true };
+
+    #[test]
+    fn standlight_wants_the_biggest_capacitor_across_the_supply() {
+        let rows = ["..........", ".┌─S┬─R─┐.", ".B..C...L.", ".└──┴───┘.", "..........", ".........."];
+        let with = |c: Kind, facing: Dir| solve(12, &rows, &[('B', BAT45, Dir::N), ('S', SW, Dir::W), ('R', R(220.0), Dir::W), ('C', c, facing), ('L', RED, Dir::N)]);
+        assert_eq!(with(cap(4700e-6, 16.0), Dir::N), [true, true]);
+        assert_eq!(with(cap(2200e-6, 16.0), Dir::N), [true, false]);
+        // Backwards it vents.
+        assert_eq!(with(cap(4700e-6, 16.0), Dir::S)[1], false);
+    }
+
+    #[test]
+    fn courtesy_light_wants_1k_and_2200uf_rated_16v_before_the_resistor() {
+        let rows = ["..........", ".┌─K┬─R─┐.", ".B..C...L.", ".└──┴───┘.", "..........", ".........."];
+        let with = |r: f64, c: Kind| solve(13, &rows, &[('B', BAT12, Dir::N), ('K', BUTTON, Dir::W), ('R', R(r), Dir::W), ('C', c, Dir::N), ('L', RED, Dir::N)]);
+        assert_eq!(with(1000.0, cap(2200e-6, 16.0)), [true, true]);
+        assert_eq!(with(470.0, cap(2200e-6, 16.0))[0], false, "too bright");
+        assert_eq!(with(2200.0, cap(2200e-6, 16.0))[0], false, "too dim");
+        assert_eq!(with(1000.0, cap(1000e-6, 16.0))[1], false, "too short");
+        assert_eq!(with(1000.0, cap(4700e-6, 16.0))[1], false, "too long");
+        assert_eq!(with(1000.0, cap(2200e-6, 10.0))[1], false, "the 10 V can vents on 12 V");
+        // Across the LED instead, the capacitor empties through it in a blink.
+        let across = ["..........", ".┌─K─R┬─┐.", ".B....C.L.", ".└────┴─┘.", "..........", ".........."];
+        let r = solve(13, &across, &[('B', BAT12, Dir::N), ('K', BUTTON, Dir::W), ('R', R(1000.0), Dir::W), ('C', cap(2200e-6, 16.0), Dir::N), ('L', RED, Dir::N)]);
+        assert_eq!(r[1], false);
+    }
+
+    #[test]
+    fn darkroom_sign_wants_two_small_capacitors_side_by_side() {
+        let one = ["..........", ".┌─S┬─R─┐.", ".B..C...L.", ".└──┴───┘.", "..........", ".........."];
+        let two = ["..........", ".┌─S┬┬R─┐.", ".B..CD..L.", ".└──┴┴──┘.", "..........", ".........."];
+        let base = |c: Kind, d: Kind| vec![('B', BAT9, Dir::N), ('S', SW, Dir::W), ('R', R(1000.0), Dir::W), ('C', c, Dir::N), ('D', d, Dir::N), ('L', RED, Dir::N)];
+        assert_eq!(solve(14, &two, &base(cap(220e-6, 16.0), cap(220e-6, 16.0))), [true, true, true]);
+        assert_eq!(solve(14, &one, &base(cap(220e-6, 16.0), cap(220e-6, 16.0))), [true, false, true], "one can't ride the bump");
+        assert_eq!(solve(14, &one, &base(cap(1000e-6, 16.0), cap(220e-6, 16.0))), [true, true, false], "1000 uF lingers");
+    }
+
+    #[test]
+    fn level_crossing_waits_about_1_1_r_c() {
+        let rows = ["..........", ".┌─S─R─┬─T", ".B.....C..", ".└─────┘..", "..........", ".........."];
+        let with = |r: f64, f: f64| solve(15, &rows, &[('B', BAT45, Dir::N), ('S', SW, Dir::W), ('R', R(r), Dir::W), ('C', cap(f, 16.0), Dir::N), ('T', TP, Dir::W)]);
+        assert_eq!(with(10e3, 100e-6), [true, true]);
+        assert_eq!(with(2200.0, 470e-6), [true, true]);
+        assert_eq!(with(4700.0, 100e-6), [true, false], "too quick");
+        assert_eq!(with(22e3, 100e-6), [true, false], "too slow");
+    }
+
+    #[test]
+    fn crossing_lifts_wants_a_33k_bleeder() {
+        let rows = ["..........", ".┌─S─R─┬┬T", ".B.....CQ.", ".└─────┴┘.", "..........", ".........."];
+        let with = |rb: f64| solve(16, &rows, &[('B', BAT45, Dir::N), ('S', SW, Dir::W), ('R', R(10e3), Dir::W), ('C', cap(100e-6, 16.0), Dir::N), ('Q', R(rb), Dir::N), ('T', TP, Dir::W)]);
+        assert_eq!(with(33e3), [true, true]);
+        assert_eq!(with(22e3), [false, true], "too slow down");
+        assert_eq!(with(47e3), [true, false], "too slow up");
+        assert_eq!(with(10e3), [false, true], "never gets to 3 V, so it drops quickly");
+        let none = ["..........", ".┌─S─R─┬─T", ".B.....C..", ".└─────┘..", "..........", ".........."];
+        let r = solve(16, &none, &[('B', BAT45, Dir::N), ('S', SW, Dir::W), ('R', R(10e3), Dir::W), ('C', cap(100e-6, 16.0), Dir::N), ('T', TP, Dir::W)]);
+        assert_eq!(r, [true, false], "never lifts");
+    }
+
+    #[test]
+    fn puppet_theatre_fades_both_ways() {
+        let rows = ["..........", ".┌S─A┬─R┐.", ".B...C..L.", ".└───┴──┘.", "..........", ".........."];
+        let with = |r1: f64, f: f64, r2: f64| solve(17, &rows, &[('B', BAT9, Dir::N), ('S', SW, Dir::W), ('A', R(r1), Dir::W), ('C', cap(f, 16.0), Dir::N), ('R', R(r2), Dir::W), ('L', RED, Dir::N)]);
+        assert_eq!(with(470.0, 2200e-6, 470.0), [true, true, true]);
+        assert_eq!(with(1000.0, 4700e-6, 220.0), [true, true, true]);
+        assert_eq!(with(1000.0, 2200e-6, 470.0)[1], false, "never bright enough");
+        assert_eq!(with(220.0, 1000e-6, 470.0)[0], false, "up too fast");
+        // No capacitor: on at once, off at once.
+        let bare = ["..........", ".┌S─A──R┐.", ".B......L.", ".└──────┘.", "..........", ".........."];
+        let r = solve(17, &bare, &[('B', BAT9, Dir::N), ('S', SW, Dir::W), ('A', R(470.0), Dir::W), ('R', R(470.0), Dir::W), ('L', RED, Dir::N)]);
+        assert_eq!((r[0], r[2]), (false, false));
+    }
 }
+

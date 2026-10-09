@@ -1,0 +1,34 @@
+# Capacitors side by side add up. The drawer has 220 uF cans and one 1000 uF: one 220 uF can't
+# ride through the bump (under 3 mA), 1000 uF lingers 2 s after switching off. Two 220 uF side by
+# side (440 uF) do both.
+name: Darkroom sign
+customer: Mr Strand, photographer
+fee: 50
+note: The IN USE lamp over my darkroom door blinks off whenever somebody bumps its old plug, and then they walk straight in on my prints. It must ride through a bump. But when I switch it off it should go out within a second and a half, or nobody knows I'm done. SW1 is the plug.
+battery: 0
+book: capacitors
+part: B battery 9 1.5 N
+part: S switch on W
+part: R resistor 1k 0.25 W
+part: L led red N
+drawer: cap 220u 16 x3 0.40
+drawer: cap 1000u 16 x1 0.70
+case: lit: LED 3-20 mA | set SW1 on | lit LED1 3m 20m
+case: a bump: lit through 0.3 s | set SW1 on | at 3 set SW1 off | at 3.3 set SW1 on | lit LED1 3m 20m at 3.29
+case: switched off: dark within 1.5 s | set SW1 on | at 3 set SW1 off | lasts LED1 0 1.5
+hint-parts: Two small ones side by side add up, and they cost less than the big one that was too much anyway.
+master-part: C cap 220u 16 N
+master-part: D cap 220u 16 N
+master: ..........
+master: .┌─S┬┬R─┐.
+master: .B..CD..L.
+master: .└──┴┴──┘.
+master: ..........
+master: ..........
+grid:
+..........
+...S..R...
+.B......L.
+..........
+..........
+..........

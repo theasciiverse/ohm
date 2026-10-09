@@ -86,7 +86,7 @@ fn lit(part: &str, min: f64, max: f64) -> Check {
 }
 
 fn case(name: &str, battery: Option<f64>, set: &[(&str, bool)], check: Check) -> Case {
-    Case { name: name.into(), battery, set: set.iter().map(|(l, v)| (l.to_string(), if *v { 1.0 } else { 0.0 })).collect(), check }
+    Case::steady(name, battery, set.iter().map(|(l, v)| (l.to_string(), if *v { 1.0 } else { 0.0 })).collect(), check)
 }
 
 fn run_cases(board: &Board, cases: &[Case]) {
@@ -163,7 +163,7 @@ fn boards() {
         &[
             ('B', Kind::Battery { volts: 5.0, r_int: 0.0 }, Dir::N),
             ('R', Kind::Resistor { ohms: 10_000.0, watts: 0.25 }, Dir::W),
-            ('C', Kind::Capacitor { farads: 100e-6 }, Dir::N),
+            ('C', Kind::Capacitor { farads: 100e-6, volts: 25.0 }, Dir::N),
         ],
     )
     .expect("rc parses");

@@ -69,7 +69,7 @@ const BINDER: [Kind; 12] = [
     Kind::Led(crate::circuit::Colour::Red),
     Kind::Lamp { ohms: 15.0, watts: 1.35 },
     Kind::Resistor { ohms: 220.0, watts: 0.25 },
-    Kind::Capacitor { farads: 100e-6 },
+    Kind::Capacitor { farads: 100e-6, volts: 25.0 },
     Kind::Switch { closed: false },
     Kind::Button { held: false },
     Kind::Fuse { amps: 2.0 },
@@ -206,15 +206,21 @@ fn rotate(d: Dir) -> Dir {
     }
 }
 
+/// A value as printed on parts: "2.2 kΩ", "1.5 V", no trailing zeros.
+fn value(v: f64, unit: &str) -> String {
+    let s = si(v, unit);
+    match s.split_once(' ') {
+        Some((n, u)) if n.contains('.') => format!("{} {u}", n.trim_end_matches('0').trim_end_matches('.')),
+        _ => s,
+    }
+}
+
+/// Capacitance as capacitors are marked: µF from 1 µF up (1000 µF, never 1 mF), nF below.
+fn farads_name(farads: f64) -> String {
+    if farads >= 1e-6 { format!("{} µF", (farads * 1e6).round()) } else { format!("{} nF", (farads * 1e9).round()) }
+}
+
 pub fn part_name(k: Kind) -> String {
-    // Values as they are printed on parts: "2.2 kΩ", "1.5 V", no trailing zeros.
-    let value = |v: f64, unit: &str| {
-        let s = si(v, unit);
-        match s.split_once(' ') {
-            Some((n, u)) if n.contains('.') => format!("{} {u}", n.trim_end_matches('0').trim_end_matches('.')),
-            _ => s,
-        }
-    };
     match k {
         Kind::Resistor { ohms, watts } => {
             if watts == 0.25 { format!("Resistor {}", value(ohms, "Ω")) } else { format!("Resistor {} {watts} W", value(ohms, "Ω")) }
@@ -226,9 +232,10 @@ pub fn part_name(k: Kind) -> String {
         Kind::Switch { .. } => "Slide switch".into(),
         Kind::Button { .. } => "Push button".into(),
         Kind::Led(c) => format!("LED, {}", c.name()),
-        // Capacitors are marked in µF from 1 µF up (1000 µF, never 1 mF), in nF below.
-        Kind::Capacitor { farads } if farads >= 1e-6 => format!("Capacitor {} µF", (farads * 1e6).round()),
-        Kind::Capacitor { farads } => format!("Capacitor {} nF", (farads * 1e9).round()),
+        // "Cap", so the rating fits the drawer. Electrolytics with their rating.
+        // No-break spaces keep each number with its unit when a card wraps the name.
+        Kind::Capacitor { farads, volts } if k.polarised() => format!("Cap {} {}", farads_name(farads), value(volts, "V")).replace(" µF", "\u{a0}µF").replace(" V", "\u{a0}V"),
+        Kind::Capacitor { farads, .. } => format!("Cap {}", farads_name(farads)).replace(" nF", "\u{a0}nF"),
         Kind::TestPoint => "Test point".into(),
         Kind::Fuse { amps } => format!("Fuse {}", value(amps, "A")),
         Kind::Ldr { .. } => "Light sensor (LDR)".into(),
@@ -467,7 +474,9 @@ impl App {
 
     /// Rebuilds the running circuit after the board changed.
     fn rebuilt(&mut self) {
-        self.live = Live::build(&self.board);
+        let live = Live::build(&self.board);
+        let old = std::mem::replace(&mut self.live, live);
+        self.live.keep_charge(&old);
         self.unsolvable = false;
         self.flow = vec![[0.0; 4]; self.board.w * self.board.h];
     }
@@ -1301,7 +1310,8 @@ impl App {
                             // is rebuilt with it.
                             k @ (Kind::Ldr { .. } | Kind::Ntc { .. } | Kind::Pot { .. }) => {
                                 b.parts[i].kind = next_state(k);
-                                *live = Live::build(b);
+                                let old = std::mem::replace(live, Live::build(b));
+                                live.keep_charge(&old);
                             }
                             _ => return,
                         }
@@ -1702,7 +1712,8 @@ impl App {
             Kind::Switch { closed } => ["slide switch".into(), if closed { "on".into() } else { "off".into() }, String::new()],
             Kind::Button { held } => ["push button".into(), if held { "held".into() } else { "up".into() }, String::new()],
             Kind::Led(c) => [c.name().into(), format!("about {:.1} V", c.vf()), "30 mA max".into()],
-            Kind::Capacitor { farads } => [si(farads, "F"), String::new(), String::new()],
+            Kind::Capacitor { farads, volts } if kind.polarised() => [farads_name(farads), format!("{} max", value(volts, "V")), "stripe to -".into()],
+            Kind::Capacitor { farads, .. } => [farads_name(farads), "ceramic".into(), "either way round".into()],
             Kind::TestPoint => ["test point".into(), String::new(), String::new()],
             Kind::Fuse { amps } => [format!("{} fast", si(amps, "A")), "carries its rating".into(), String::new()],
             Kind::Ldr { lux } => [light_name(lux).into(), format!("{lux} lux"), si(kind.sensor_ohms().unwrap(), "Ω")],
@@ -1957,8 +1968,13 @@ pub fn part_facts(kind: Kind) -> Facts {
         ),
         Kind::Capacitor { .. } => (
             "Capacitor",
-            &[("Stores", "charge"), ("Time", "through R, 63% charged after R x C seconds")],
-            "Two plates with an insulator between. Current flows only while the voltage across it changes.",
+            &[
+                ("Stores", "charge: it keeps a light going after the battery is gone"),
+                ("Time", "through R, 63% charged (or 37% left) after R x C seconds"),
+                ("Polarised", "from 1 µF up: the striped leg to -"),
+                ("Rating", "holds its voltage and 15% more for a moment; above that, or backwards, it vents"),
+            ],
+            "Two plates with an insulator between. Current flows only while the voltage across it changes, and it takes time to change: the bigger the capacitor and the resistor feeding it, the longer.",
             "A bucket for charge. Mind which way round the big ones go.",
         ),
         Kind::TestPoint => (
@@ -2033,6 +2049,13 @@ fn temp_name(c: f64) -> &'static str {
 
 /// Builds the bike lamp by keyboard, as a player would: 220 ohm along the top, the switch along
 /// the bottom. For tests and the scripted shots.
+/// Puts the old master's solution for the job on the desk in place of the board, for shots.
+pub fn show_master(a: &mut App) {
+    let (board, _) = a.job.master.embed(BENCH.0, BENCH.1);
+    a.board = board;
+    a.rebuilt();
+}
+
 pub fn build_bike_lamp(a: &mut App) {
     let go = |a: &mut App, x: usize, y: usize| a.cursor = a.at(x, y);
     // Resistor 220 is drawer slot 3, the switch slot 5.
@@ -2344,7 +2367,7 @@ mod tests {
             Kind::Switch { closed: false },
             Kind::Button { held: false },
             Kind::Led(crate::circuit::Colour::Red),
-            Kind::Capacitor { farads: 1.0 },
+            Kind::Capacitor { farads: 1.0, volts: 1.0 },
         ] {
             assert!(kinds(&a).contains(&std::mem::discriminant(&k)), "{k:?} missing");
         }

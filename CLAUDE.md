@@ -7,9 +7,9 @@ embedded nodal-analysis solver decides what the circuit actually does. The arc r
 (a torch) through relays and logic to a small programmable chip. In the family of SHENZHEN I/O,
 Retro Gadgets and Turing Complete (see Inspiration), with a real analog solver as its own heart.
 
-**Status** (2026-10-09): chapters 1 and 2 playable from a launch page: twelve jobs that unlock
-one after another, each with ticks against the old master's par, the Master's Notebook with
-fourteen checked pages (the meter and scope read its example circuits), the card binder, the
+**Status** (2026-10-09): chapters 1 to 3, version 1, playable from a launch page: eighteen jobs
+that unlock one after another, each with ticks against the old master's par, the Master's
+Notebook with seventeen checked pages (the meter and scope read its example circuits), the card binder, the
 sandbox, help on F1, panels that grow, a save file. David has played the first job and tried
 the sandbox; the rest is covered by tests and headless shots, not yet by a person. Sound is in but not yet heard. Own git repo, private at github.com/theasciiverse/ohm (2026-10-09).
 
@@ -20,7 +20,8 @@ cargo test
 cargo run --release -- --bench                # numbers, spec runs and hints as text
 cargo run --release -- --shot desk --demo --cells | python3 tools/shot.py play.png
   # --shot title|desk|gallery, --saved (from the save file), --demo builds the lamp, --secs S, --cursor X,Y,
-  # --overlay drawers|report|bookN|help, --grow inbox|multimeter|scope|datasheet, --sandbox, --size WxH
+  # --overlay drawers|report|bookN|help|binder, --grow inbox|multimeter|scope|datasheet, --sandbox,
+  # --size WxH, --master (the old master's solution on the desk)
   # Shots never write the save file (progress::NO_SAVE): before 2026-10-09 they did, through
   # autosave and job switching, and overwrote David's real save.
 ```
@@ -38,7 +39,8 @@ Code:
 - `src/circuit.rs`: the board (tiles, trace masks, jumpers, parts with facing and burnt state),
   editing, embedding a job in the workbench, the netlist by union-find over tile-edge ports,
   `trace_glyph`, and `Live` (a board as a running circuit, the current in every copper tile).
-- `src/bench.rs`: spec cases (`Lit`, `Dark`, `Volts`; several parts with `LED1+LED2`) and
+- `src/bench.rs`: spec cases (`Lit`, `Dark`, `Volts`, `Blown`, and the timed `Lasts` and
+  `Reaches`; several parts with `LED1+LED2`; events partway through, `at 3 set SW1 off`) and
   `diagnose`, the three-step hints.
 - `src/job.rs`: the job file format (documented at its top), `jobs/*.txt` compiled in, the
   master's solution, scores and ticks, and a test per job proving its intended answer passes
@@ -305,7 +307,7 @@ job ledger.
 | LED (colour sets Vf) | exponential diode via Newton; overcurrent kills it | 1-2 |
 | Potentiometer, LDR, thermistor | a pot is two resistors meeting at the wiper (its third pin, a quarter turn clockwise from pin `a`), never below 1 Ω each; an LDR follows the GL5528 (8 to 20 kΩ at 10 lux, gamma 0.7, at least 1 MΩ dark; 15 kΩ chosen at 10 lux, rated 100 mW); a thermistor is 10 kΩ at 25 °C with B 3950 by the B equation | 2 (built) |
 | Fuse | 0.1 Ω (chosen); heat follows the square of current over rating with a 0.25 s time constant and it opens at 1.6 times its rating, fitted to IEC 60127-2 fast-acting limits (holds 1.5 times, opens at 2.75 times in 0.05 to 2 s, at 4 times within 0.3 s, at 10 times within 20 ms; a solver test checks each) | 2 (built) |
-| Capacitor | backward-Euler companion model; an electrolytic pops if reversed or over-volted | 3 |
+| Capacitor | backward-Euler companion model. From 1 µF up an electrolytic: polarised, rated in volts, and it vents (opens) when held past its surge voltage (1.15 times its rating) or reversed by more than 1.5 V, both from Vishay's "Aluminum Capacitors: Introduction" (document 25001); its stress follows the square of the overshoot with a 0.5 s time constant (chosen). Below 1 µF a ceramic that never fails. A rebuilt circuit (an edit, a pot turned) keeps every capacitor's charge, matched by tile | 3 (built) |
 | Relay | coil as a resistor, pull-in/drop-out hysteresis, a few ms of contact delay (which is what makes buzzers oscillate). Coil and contacts share a label (K1), as in ladder diagrams | 4 |
 | Diode, BJT transistor | Newton models, BJT kept simple | 5 |
 | Logic gate ICs, 7-segment display | behavioural, powered implicitly | 6 |
@@ -469,10 +471,11 @@ terminal shows more desk round it, never a bigger title).
 ## The card binder (built 2026-10-09)
 
 One card per kind of part (`BINDER` in `src/app.rs`: battery, bench supply, LED, lamp,
-resistor, capacitor, slide switch, push button), an overlay with the list on the left like the
-Notebook. Opened with `b` at the part under the cursor or in hand, or from the BINDER label in
-the datasheet's border. A card is collected once an arrived job uses that part, or it is on the
-sandbox board, so the sandbox is how capacitors and the supply get collected for now. Each card:
+resistor, capacitor, slide switch, push button, fuse, pot, LDR, thermistor), an overlay with
+the list on the left like the Notebook. Opened with `b` at the part under the cursor or in hand,
+or from the BINDER label in the datasheet's border. A card is collected once an arrived job uses
+that part, or it is on the sandbox board; the standlight brings the capacitor, and the sandbox is
+how the bench supply gets collected for now. Each card:
 the part's picture, where it was first met, the values the shop stocks, every rule, why it
 behaves so (the same text as the datasheet, from `part_facts`) and a line in the old master's
 voice. Long cards scroll with the wheel.
@@ -484,7 +487,9 @@ workbench, and as many as you like of every kind of part, free, from the start (
 sandbox should have every part, not only the ones the jobs have shown). The catalogue in
 `Job::sandbox`: AA cell, 4.5 V, 9 V and 12 V batteries, a 5 V bench supply, LEDs in all four
 colours, both lamps, E12 resistors from 10 Ω to 100 kΩ plus the café sign's power resistors,
-capacitors from 100 nF to 1000 µF, a slide switch and a push button. Names read as printed on
+a 100 nF ceramic and electrolytics from 10 µF 25 V to 4700 µF 16 V (and one 1000 µF 6.3 V, to
+find out what a rating means), the pot, LDR, thermistor and fuses, a slide switch and a push
+button. Names read as printed on
 real parts ("2.2 kΩ", "1000 µF", lamps by voltage). Its board is saved as `sandbox` and kept
 apart from the jobs'; Continue on
 the launch page goes back to the job it left. For trying things, for children who just want to
@@ -525,6 +530,23 @@ thermistor are operated with e, a click, or the wheel for a pot, and the bench s
 | Light meter | Mr Strand, photographer | an LDR in a divider | LDR on top over 2.2k or 4.7k | 1k, 10k, the LDR underneath |
 | Fridge gauge | Café Ohlsson | a thermistor in a divider | thermistor on top over 22k | 10k, 47k, the thermistor underneath |
 | Trailer light | Mr Lund | fuses | 2 A | 500 mA blows with the lamp, 5 A holds through the fault, no fuse |
+
+**Chapter 3 as built** (2026-10-09), "Time", each proven by a test in `src/job.rs`; the bench
+runs a case through time (`at 3 set SW1 off`), reads at a moment (`lit LED1 0 2m at 0.3`), and
+times things from the last event (`lasts LED1 4 8`: stays lit that long; `reaches TP1 3 0.8
+1.5`: gets to 3 V in that time):
+
+| Job | Customer | Teaches | Passes | Fails |
+|---|---|---|---|---|
+| Standlight | Mrs Berg | a capacitor keeps a light going | 4700 µF across the supply (2.8 s) | 2200 µF (1.3 s), any can backwards (vents) |
+| Courtesy light | Mr Lund, the van | R x C sets the fade, R the brightness, ratings | 1k and 2200 µF 16 V before the resistor (5.2 s) | 470 too bright, 2.2k too dim, 1000 µF too short, 4700 µF too long, the 10 V can vents on 12 V, the cap across the LED empties in a blink |
+| Darkroom sign | Mr Strand | capacitors side by side add up; enough but not too much | two 220 µF side by side | one 220 µF drops out in the bump, 1000 µF lingers 2 s |
+| Level crossing | Mr Nilsson, model railway | a delay to a threshold, 1.1 R x C | 10k and 100 µF (1.1 s), 2.2k and 470 µF (dearer) | 4.7k and 100 µF too quick, 22k and 100 µF too slow |
+| Crossing lifts | Mr Nilsson | a bleeder empties a capacitor, and divides | 33k across | 22k drops too slowly, 47k lifts too slowly, 10k never reaches 3 V, none never lifts |
+| Puppet theatre | Elsa, 8 | the chapter at once: slow up, slow down | many; par 470, 2200 µF, 470 | no charging resistor snaps on, no capacitor snaps both ways, 1k with 2200 µF never bright |
+
+Not a real dynamo: the standlight's battery and switch stand in for one (a real dynamo gives AC
+and needs a rectifier, chapter 5).
 
 The launch page's shelf turns a page per chapter (`<` and `>` on the plank, or left and right)
 when the terminal can't show every gadget; a wide one shows them all.
@@ -589,8 +611,10 @@ Each step is seen working before the next starts. Nothing here needs a repo unti
 6. [x] **Chapter 1**: six jobs, unlocking, the save file (2026-10-09). Still to do from this
        step: the bench supply as a desk object, and David (and his daughters) playing it. The
        card binder: built 2026-10-09. Panels that grow when their title is clicked: built 2026-10-09.
-7. [ ] **Chapters 2 and 3**: version 1. Chapter 2 built 2026-10-09 (six jobs, four parts, four
-       Notebook pages); chapter 3 (time: capacitors as player parts) next.
+7. [x] **Chapters 2 and 3**: version 1. Chapter 2 built 2026-10-09 (six jobs, four parts, four
+       Notebook pages); chapter 3 built 2026-10-09 (six jobs, electrolytics with polarity and
+       ratings, timed bench checks, three Notebook pages). Next: David and his daughters play
+       version 1.
 8. [ ] Later: relays, semiconductors, logic, the chip. The sandbox desk: built 2026-10-09.
 
 ## Open decisions

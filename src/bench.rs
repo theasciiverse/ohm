@@ -26,6 +26,12 @@ pub enum Check {
     Volts { point: String, min: f64, max: f64 },
     /// A fuse has blown by the end of the case: the fault it is there for was cleared.
     Blown { part: String },
+    /// After the case's last event, an LED or a lamp stays lit at least `min` seconds and goes
+    /// out within `max`.
+    Lasts { part: String, min: f64, max: f64 },
+    /// After the case's last event (or from the start), a test point's voltage gets to `volts`
+    /// in `min` to `max` seconds, rising or falling to it.
+    Reaches { point: String, volts: f64, min: f64, max: f64 },
 }
 
 /// One condition the build must meet: how the bench sets the board up, and what it checks.
@@ -37,7 +43,23 @@ pub struct Case {
     /// Parts by label and what they are set to: a switch or button 1 (closed, held) or 0, an
     /// LDR's lux, a thermistor's °C, a pot's turn from 0 to 1.
     pub set: Vec<(String, f64)>,
+    /// Parts set again partway through, as `set` sets them: (seconds, label, value), in order.
+    pub events: Vec<(f64, String, f64)>,
+    /// When a steady check takes its reading, seconds; by default `SETTLE` after the last event.
+    pub at: Option<f64>,
     pub check: Check,
+}
+
+impl Case {
+    /// A case with no events, read once it has settled.
+    pub fn steady(name: &str, battery: Option<f64>, set: Vec<(String, f64)>, check: Check) -> Case {
+        Case { name: name.into(), battery, set, events: Vec::new(), at: None, check }
+    }
+
+    /// When the last event happens: what timed checks count from.
+    fn start(&self) -> f64 {
+        self.events.iter().map(|e| e.0).fold(0.0, f64::max)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,7 +78,8 @@ impl Outcome {
 }
 
 pub fn run_case(board: &Board, case: &Case) -> Outcome {
-    if let Some((label, _)) = case.set.iter().find(|(l, _)| board.part(l).is_none()) {
+    let labels = case.set.iter().map(|(l, _)| l).chain(case.events.iter().map(|(_, l, _)| l));
+    if let Some(label) = labels.into_iter().find(|l| board.part(l).is_none()) {
         let what = match label.trim_end_matches(|c: char| c.is_ascii_digit()) {
             "PB" => "a push button",
             "RV" => "a potentiometer",
@@ -66,11 +89,11 @@ pub fn run_case(board: &Board, case: &Case) -> Outcome {
         };
         return Outcome::fail(format!("{label} isn't on the board: this job needs {what}."));
     }
-    let b = with_settings(board, case);
+    let mut b = with_settings(board, case);
     // A check can name several parts joined with `+` (`LED1+LED2`): each must pass.
     let names = match &case.check {
-        Check::Lit { part, .. } | Check::Dark { part } | Check::Blown { part } => part,
-        Check::Volts { point, .. } => point,
+        Check::Lit { part, .. } | Check::Dark { part } | Check::Blown { part } | Check::Lasts { part, .. } => part,
+        Check::Volts { point, .. } | Check::Reaches { point, .. } => point,
     };
     let mut targets = Vec::new();
     for name in names.split('+') {
@@ -80,16 +103,112 @@ pub fn run_case(board: &Board, case: &Case) -> Outcome {
         }
     }
     let mut live = Live::build(&b);
-    for _ in 0..(SETTLE / DT).round() as usize {
+    let start = case.start();
+    let end = match &case.check {
+        Check::Lasts { max, .. } | Check::Reaches { max, .. } => start + max + 0.5,
+        _ => case.at.unwrap_or(start + SETTLE),
+    };
+    let mut next = 0;
+    // For timed checks: the reading where the count starts, and when it ended, from `start`.
+    let mut from: Option<f64> = None;
+    let mut ended: Option<f64> = None;
+    let steps = (end / DT).round() as usize;
+    for n in 0..steps {
+        let t = n as f64 * DT;
+        while let Some((when, label, v)) = case.events.get(next)
+            && *when <= t + DT / 2.0
+        {
+            next += 1;
+            let i = b.part(label).unwrap();
+            b.parts[i].kind = set_kind(b.parts[i].kind, *v);
+            match b.parts[i].kind {
+                Kind::Switch { closed: on } | Kind::Button { held: on } => live.set_switch(i, on),
+                _ => {
+                    let old = std::mem::replace(&mut live, Live::build(&b));
+                    live.keep_charge(&old);
+                }
+            }
+        }
         if live.sim.step(DT).is_err() {
             return Outcome::fail("The circuit can't be solved: two sources are fighting.".into());
         }
         // A part burning out fails the case, except the fuse a `blown` check waits for.
         let expected = |i: usize| matches!(case.check, Check::Blown { .. }) && targets.contains(&i);
         if let Some(burnt) = b.parts.iter().enumerate().find(|(i, _)| live.reading(&b, *i).burnt && !expected(*i)) {
-            let what = if matches!(burnt.1.kind, Kind::Fuse { .. }) { "blew" } else { "burnt out" };
+            let what = match burnt.1.kind {
+                Kind::Fuse { .. } => "blew",
+                Kind::Capacitor { .. } => "vented: its voltage was too high or the wrong way round",
+                _ => "burnt out",
+            };
             return Outcome::fail(format!("{} {what}.", burnt.1.label));
         }
+        if t + DT < start {
+            continue;
+        }
+        let since = t + DT - start;
+        match &case.check {
+            Check::Lasts { .. } => {
+                if targets.iter().any(|&i| live.reading(&b, i).amps < UNLIT) {
+                    ended = Some(since);
+                    break;
+                }
+            }
+            Check::Reaches { volts, .. } => {
+                let v = live.reading(&b, targets[0]).volts;
+                let was = *from.get_or_insert(v);
+                if (was - volts) * (v - volts) <= 0.0 {
+                    ended = Some(since);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let after = match case.events.last() {
+        Some((_, label, v)) => format!(" after {label} {}", if *v > 0.5 { "goes on" } else { "goes off" }),
+        None => String::new(),
+    };
+    // "in 1.10 s" from the start, "1.10 s after SW1 goes off" from an event.
+    let when = |s: f64| if after.is_empty() { format!("in {}", secs(s)) } else { format!("{}{after}", secs(s)) };
+    match &case.check {
+        Check::Lasts { min, max, .. } => {
+            let label = names;
+            return match ended {
+                Some(s) if s < 0.05 && s < *min => Outcome {
+                    pass: false,
+                    measured: Some(s),
+                    why: format!("{label} goes out at once{after}; it should stay lit at least {}.", secs(*min)),
+                },
+                Some(s) if s < *min => Outcome {
+                    pass: false,
+                    measured: Some(s),
+                    why: format!("{label} goes out {}{after}; it should stay lit at least {}.", secs(s), secs(*min)),
+                },
+                Some(s) => Outcome { pass: true, measured: Some(s), why: format!("{label} stays lit {}{after}.", secs(s)) },
+                None => Outcome {
+                    pass: false,
+                    measured: None,
+                    why: format!("{label} is still lit {}{after}; it should go out within {}.", secs(*max + 0.5), secs(*max)),
+                },
+            };
+        }
+        Check::Reaches { volts, min, max, .. } => {
+            let label = names;
+            let v = si(*volts, "V");
+            return match ended {
+                Some(s) if s < *min || s > *max => Outcome {
+                    pass: false,
+                    measured: Some(s),
+                    why: format!("{label} gets to {v} {}; this job wants {} to {}.", when(s), secs(*min), secs(*max)),
+                },
+                Some(s) => Outcome { pass: true, measured: Some(s), why: format!("{label} gets to {v} {}.", when(s)) },
+                None => {
+                    let now = si(live.reading(&b, targets[0]).volts, "V");
+                    Outcome { pass: false, measured: None, why: format!("{label} never gets to {v}; it is at {now} {}.", when(*max + 0.5)) }
+                }
+            };
+        }
+        _ => {}
     }
     let outcomes: Vec<Outcome> = targets.iter().map(|&t| judge(&case.check, &b.parts[t].label, live.reading(&b, t))).collect();
     match outcomes.iter().find(|o| !o.pass) {
@@ -114,17 +233,29 @@ fn with_settings(board: &Board, case: &Case) -> Board {
             }
             kind => {
                 let Some(&(_, v)) = case.set.iter().find(|(l, _)| *l == part.label) else { continue };
-                match kind {
-                    Kind::Switch { closed: on } | Kind::Button { held: on } => *on = v > 0.5,
-                    Kind::Ldr { lux } => *lux = v,
-                    Kind::Ntc { celsius } => *celsius = v,
-                    Kind::Pot { turn, .. } => *turn = v.clamp(0.0, 1.0),
-                    _ => {}
-                }
+                *kind = set_kind(*kind, v);
             }
         }
     }
     b
+}
+
+/// A part set as a case says: a switch or button on (1) or off (0), an LDR's lux, a
+/// thermistor's °C, a pot's turn.
+fn set_kind(kind: Kind, v: f64) -> Kind {
+    match kind {
+        Kind::Switch { .. } => Kind::Switch { closed: v > 0.5 },
+        Kind::Button { .. } => Kind::Button { held: v > 0.5 },
+        Kind::Ldr { .. } => Kind::Ldr { lux: v },
+        Kind::Ntc { .. } => Kind::Ntc { celsius: v },
+        Kind::Pot { ohms, .. } => Kind::Pot { ohms, turn: v.clamp(0.0, 1.0) },
+        k => k,
+    }
+}
+
+/// Seconds as the bench says them: "0.85 s", "12 s".
+pub fn secs(s: f64) -> String {
+    if s < 10.0 { format!("{s:.2} s") } else { format!("{s:.0} s") }
 }
 
 /// The current the sources give, amps, once a case has settled: what drains the battery.
@@ -145,7 +276,11 @@ fn judge(check: &Check, label: &str, r: crate::circuit::Reading) -> Outcome {
         Check::Lit { min, max, .. } => {
             let pass = r.amps >= *min && r.amps <= *max;
             // A pass reads as one, even glowing below what counts as lit elsewhere.
-            let why = if pass {
+            let why = if pass && r.amps < 10e-6 {
+                format!("{label} is still dark.")
+            } else if pass && r.amps < UNLIT {
+                format!("{label} glows dimly at {}.", si(r.amps, "A"))
+            } else if pass {
                 format!("{label} lit at {}.", si(r.amps, "A"))
             } else if r.amps < UNLIT {
                 format!("{label} stays dark; it should carry {} to {}.", si(*min, "A"), si(*max, "A"))
@@ -168,6 +303,7 @@ fn judge(check: &Check, label: &str, r: crate::circuit::Reading) -> Outcome {
             };
             Outcome { pass, measured: Some(r.volts), why }
         }
+        Check::Lasts { .. } | Check::Reaches { .. } => unreachable!("timed checks are judged in run_case"),
         Check::Blown { .. } => {
             let why = if r.burnt { format!("{label} blew and cut the fault off.") } else { format!("{label} held through the fault; it should have blown.") };
             Outcome { pass: r.burnt, measured: Some(r.amps), why }
@@ -399,7 +535,7 @@ mod tests {
     }
 
     fn case(battery: Option<f64>, set: &[(&str, bool)], check: Check) -> Case {
-        Case { name: "test".into(), battery, set: set.iter().map(|(l, v)| (l.to_string(), if *v { 1.0 } else { 0.0 })).collect(), check }
+        Case::steady("test", battery, set.iter().map(|(l, v)| (l.to_string(), if *v { 1.0 } else { 0.0 })).collect(), check)
     }
 
     #[test]
@@ -465,7 +601,7 @@ mod tests {
                 ('B', Kind::Battery { volts: 4.5, r_int: 0.45 }, Dir::N),
                 ('R', Kind::Resistor { ohms: 220.0, watts: 0.25 }, Dir::W),
                 ('L', Kind::Led(Colour::Red), Dir::N),
-                ('C', Kind::Capacitor { farads: 1e-6 }, Dir::N),
+                ('C', Kind::Capacitor { farads: 1e-6, volts: 25.0 }, Dir::N),
             ],
         )
         .unwrap();

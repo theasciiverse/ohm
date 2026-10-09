@@ -1,0 +1,36 @@
+# A delay: R charges C, and TP1 gets to 3 V (two thirds of 4.5 V) after R x C x ln 3, about
+# 1.1 R x C. 10k with 100 uF (1.1 s) passes, and so does 2.2k with 470 uF (1.14 s), dearer;
+# 4.7k with 100 uF is too quick, 22k with 100 uF too slow.
+name: Level crossing
+customer: Mr Nilsson
+fee: 50
+note: On my model railway the barrier drops the instant the train touches the track contact, and the little cars never get across. Make it wait about a second, between 0.8 and 1.5. The barrier drops when TP1 gets to 3 V. SW1 is the track contact: on while a train is on it.
+battery: 0
+book: time-constant
+part: B battery 4.5 0.45 N
+part: S switch on W
+part: T testpoint W
+drawer: resistor 2k2 0.25 x1 0.10
+drawer: resistor 4k7 0.25 x1 0.10
+drawer: resistor 10k 0.25 x1 0.10
+drawer: resistor 22k 0.25 x1 0.10
+drawer: cap 100u 16 x1 0.30
+drawer: cap 470u 16 x1 0.50
+case: no train: TP1 under 1 V | set SW1 off | volts TP1 0 1
+case: train comes: TP1 to 3 V in 0.8-1.5 s | set SW1 on | reaches TP1 3 0.8 1.5
+hint-parts: The time goes as R times C: a bigger resistor lets a smaller, cheaper capacitor do the same.
+master-part: R resistor 10k 0.25 W
+master-part: C cap 100u 16 N
+master: ..........
+master: .┌─S─R─┬─T
+master: .B.....C..
+master: .└─────┘..
+master: ..........
+master: ..........
+grid:
+..........
+...S.....T
+.B........
+..........
+..........
+..........

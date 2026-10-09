@@ -1,0 +1,37 @@
+# R x C sets the fade. 1k keeps the LED in spec (470 too bright, 2.2k too dim); then 2200 uF
+# fades in about 5 s (1000 uF 2.4 s, 4700 uF 11 s). The cap must sit before the resistor: across
+# the LED it empties through the LED in a blink. The 10 V can vents on the van's 12 V.
+name: Courtesy light
+customer: Mr Lund
+fee: 55
+note: The light in my van goes out the moment I shut the door, and I'm left fumbling for the ignition in the dark. Can it fade out over a few seconds instead, four to eight? PB1 is the door switch: closed while the door is open.
+battery: 0
+book: capacitors, time-constant
+part: B battery 12 0.05 N
+part: K button W
+part: L led red N
+drawer: resistor 470 0.25 x1 0.10
+drawer: resistor 1k 0.25 x1 0.10
+drawer: resistor 2k2 0.25 x1 0.10
+drawer: cap 1000u 16 x1 0.70
+drawer: cap 2200u 10 x1 1.00
+drawer: cap 2200u 16 x1 1.20
+drawer: cap 4700u 16 x1 2.00
+case: door open: LED 5-20 mA | set PB1 on | lit LED1 5m 20m
+case: door shut: fades out in 4-8 s | set PB1 on | at 3 set PB1 off | lasts LED1 4 8
+hint-parts: A cap rated 16 V is the one for a 12 V van: a van battery charging runs at over 14 V.
+master-part: R resistor 1k 0.25 W
+master-part: C cap 2200u 16 N
+master: ..........
+master: .┌─K┬─R─┐.
+master: .B..C...L.
+master: .└──┴───┘.
+master: ..........
+master: ..........
+grid:
+..........
+...K......
+.B......L.
+..........
+..........
+..........
