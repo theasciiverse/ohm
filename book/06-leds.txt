@@ -1,0 +1,13 @@
+title: LEDs
+unlock: start
+para: An LED lets current through one way only, from its long leg (the anode, +) to its short leg (the cathode, -), and gives off light as it does. Put in backwards, it stays dark.
+para: An LED drops a nearly fixed voltage, its forward voltage: about 2 V for red, about 3.2 V for blue and bright green, about 2.2 V for the older, classic yellow-green. Above that, its current rises very fast, so an LED always needs something to limit it, usually a resistor.
+para: Resistor = (battery voltage - forward voltage) / current. For a red LED at 12 mA on 4.5 V: (4.5 - 2.0) / 0.012 = 208 Ω, so the next value up, 220 Ω. Small LEDs are typically rated for about 20 mA.
+source: SparkFun, Basic Red 5 mm LED (COM-09590): 2.0 V typical at 20 mA. Multicomp Pro 5 mm multi-colour LED datasheet: green and blue 3.2 V typical at 20 mA. Kingbright L-5A7GD (GaP green, 565 nm): 2.2 V typical at 20 mA.
+part: B battery 4.5 0.45 N
+part: R resistor 220 0.25 W
+part: L led red N
+grid:
+┌─R─┐
+B...L
+└───┘

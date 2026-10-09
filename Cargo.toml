@@ -1,0 +1,14 @@
+[package]
+name = "ohm"
+version = "0.1.0"
+edition = "2024"
+description = "Asciiverse electronics desk puzzle with a real circuit solver; Rust + Ratatui"
+
+[dependencies]
+ratatui = "0.30"
+log = "0.4"
+env_logger = "0.11"
+rodio = { version = "0.22", default-features = false, features = ["playback"] }
+
+[profile.release]
+debug = 1

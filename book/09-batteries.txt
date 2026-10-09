@@ -1,0 +1,13 @@
+title: Batteries
+unlock: christmas-star
+para: A battery is not perfect. Inside it is a small resistance, so its voltage sags a little when current flows: a fresh AA alkaline cell has about 0.15 to 0.3 Ω inside, and more as it runs down.
+para: Its capacity says how long it can keep going, in milliamp-hours (mAh). A fresh AA alkaline cell holds about 2850 mAh at a gentle 25 mA, less when drawn harder. Three in a row give three times the voltage, not more mAh.
+para: Capacity / current = hours. A lamp drawing 12 mA from AA cells lasts about 2850 / 12 = 240 hours. A 9 V block holds much less, about 625 mAh.
+source: Energizer E91 datasheet: 150 to 300 mΩ fresh, 2850 mAh at 25 mA to 0.8 V. Eveready 522 (9 V) datasheet: 625 mAh at 25 mA.
+part: B battery 4.5 0.45 N
+part: R resistor 220 0.25 W
+part: L led red N
+grid:
+┌─R─┐
+B...L
+└───┘

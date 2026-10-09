@@ -1,0 +1,34 @@
+# Three LEDs in a row from one 9 V battery: in series they share one resistor and one current.
+name: Christmas star
+customer: Mr Nilsson, the square
+fee: 60
+note: Three red LEDs on the star at the top of the tree, running off one 9 V battery, with a switch. Cheap is good: it's for the whole square.
+battery: 625
+book: batteries, series-parallel
+part: B battery 9 1.5 N
+part: A led red W
+part: C led red W
+part: E led red W
+drawer: resistor 100 0.25 x3 0.10
+drawer: resistor 220 0.25 x3 0.10
+drawer: resistor 470 0.25 x3 0.10
+drawer: switch x1 2.00
+case: all 5-20 mA, 9.5 V | battery 9.5 | set SW1 on | lit LED1+LED2+LED3 5m 20m
+case: all 5-20 mA, 7.5 V | battery 7.5 | set SW1 on | lit LED1+LED2+LED3 5m 20m
+case: dark when off | set SW1 off | dark LED1+LED2+LED3
+life: all 5-20 mA, 9.5 V
+master-part: R resistor 220 0.25 W
+master-part: S switch on W
+master: ..........
+master: .┌─A─C─E┐.
+master: .│......│.
+master: .B......│.
+master: .└─R──S─┘.
+master: ..........
+grid:
+..........
+...A.C.E..
+..........
+.B........
+..........
+..........

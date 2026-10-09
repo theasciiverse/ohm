@@ -1,0 +1,29 @@
+# A 6 V bulb on a 12 V battery: the resistor must burn off half the power, about 2 W. A small
+# 0.25 W resistor of the right value burns out; the 2 W one costs more and survives.
+name: Café sign
+customer: Café Ohlsson
+fee: 70
+note: Our van has a 12 V battery and our sign has a 6 V bulb. The last repairman's resistor went up in smoke. Can you make it last?
+battery: 0
+book: power
+part: B battery 12 0.05 N
+part: X lamp 20 1.8 N
+drawer: resistor 22 0.25 x2 0.10
+drawer: resistor 22 2 x1 1.50
+drawer: resistor 47 0.25 x2 0.10
+case: 250-340 mA, 12.0 V | battery 12.0 | lit LP1 250m 340m
+case: 250-340 mA, 13.8 V | battery 13.8 | lit LP1 250m 340m
+master-part: R resistor 22 2 W
+master: ..........
+master: .┌──R───┐.
+master: .B......X.
+master: .└──────┘.
+master: ..........
+master: ..........
+grid:
+..........
+..........
+.B......X.
+..........
+..........
+..........

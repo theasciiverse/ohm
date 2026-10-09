@@ -1,0 +1,13 @@
+title: Voltage
+unlock: start
+para: Voltage is the push that drives current round the loop, measured in volts (V). A battery holds its + terminal a fixed number of volts above its - terminal: about 1.5 V for one AA cell, 4.5 V for three in a row.
+para: Voltage is always between two points. The multimeter reads from the point under your cursor to the battery's - terminal, so copper joined to + reads the full battery and copper joined to - reads nothing.
+para: Each part in the loop takes a share of the push. Their shares add up to the battery's voltage.
+source: SI brochure, BIPM: the volt is one joule of energy per coulomb of charge.
+part: B battery 4.5 0.45 N
+part: R resistor 220 0.25 W
+part: L led red N
+grid:
+┌─R─┐
+B...L
+└───┘

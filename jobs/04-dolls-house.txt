@@ -1,0 +1,33 @@
+# Two LEDs of different colours side by side: each needs its own resistor. With one shared
+# resistor the red LED, with its lower forward voltage, takes most of the current, and on tired
+# cells the green one starves (100 ohm shared: green 2.6 mA at 3.3 V).
+name: Doll's house
+customer: Elsa, 8 years old
+fee: 50
+note: My doll's house needs two lights, a red one upstairs and a green one downstairs. Both must shine, even when the batteries get old.
+battery: 2850
+book: leds, series-parallel
+part: B battery 4.5 0.45 N
+part: L led red W
+part: M led green W
+drawer: resistor 100 0.25 x2 0.10
+drawer: resistor 150 0.25 x2 0.10
+drawer: resistor 220 0.25 x2 0.10
+case: both 5-20 mA, 4.8 V | battery 4.8 | lit LED1+LED2 5m 20m
+case: both 5-20 mA, 3.3 V | battery 3.3 | lit LED1+LED2 5m 20m
+life: both 5-20 mA, 4.8 V
+master-part: R resistor 220 0.25 W
+master-part: S resistor 220 0.25 W
+master: ..........
+master: .┌─R─L──┐.
+master: .├─S─M──┤.
+master: .B......│.
+master: .└──────┘.
+master: ..........
+grid:
+..........
+.....L....
+.....M....
+.B........
+..........
+..........

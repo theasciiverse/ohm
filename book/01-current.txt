@@ -1,0 +1,13 @@
+title: Current
+unlock: start
+para: Current is electric charge on the move: how much flows past a point each second, measured in amperes (A). A small LED wants about a hundredth of an ampere, 10 milliamps (10 mA).
+para: Current only flows round a closed loop: out of the battery's + terminal, through the parts, and back into its - terminal. Break the loop anywhere and it stops everywhere at once.
+para: On the board, current shows as light running along the copper, faster where more flows.
+source: SI brochure, BIPM: the ampere is one coulomb of charge per second.
+part: B battery 4.5 0.45 N
+part: R resistor 220 0.25 W
+part: L led red N
+grid:
+┌─R─┐
+B...L
+└───┘

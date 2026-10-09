@@ -1,0 +1,27 @@
+# A lamp that lights only while a button is held: a push button, not a switch.
+name: Porch lamp
+customer: Mr Lund, Kyrkvägen
+fee: 30
+note: Visitors can't find my doorbell in the dark. I'd like a lamp by the door that lights while you hold a button, and goes out when you let go.
+battery: 2850
+book: switches
+part: B battery 4.5 0.45 N
+part: X lamp 15 1.35 N
+drawer: button x1 1.50
+drawer: switch x1 2.00
+case: lit while held | set PB1 on | lit LP1 200m 400m
+case: dark when let go | set PB1 off | dark LP1
+master-part: P button W
+master: ..........
+master: .┌──P───┐.
+master: .B......X.
+master: .└──────┘.
+master: ..........
+master: ..........
+grid:
+..........
+..........
+.B......X.
+..........
+..........
+..........

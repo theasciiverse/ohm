@@ -1,0 +1,12 @@
+title: Ohm's law
+unlock: start
+para: A resistor resists current. Its resistance, in ohms (Ω), sets how much current a voltage can push through it: current = voltage / resistance, or I = V / R.
+para: 4.5 V across 220 Ω gives 4.5 / 220 = 0.020 A, 20 mA. Double the resistance and the current halves; double the voltage and it doubles.
+para: The same law turned round tells you the voltage across a resistor from the current through it: V = I × R. Point the multimeter at R1 and check.
+source: Georg Simon Ohm, Die galvanische Kette, mathematisch bearbeitet (1827).
+part: B battery 4.5 0.45 N
+part: R resistor 220 0.25 W
+grid:
+┌─R─┐
+B...│
+└───┘

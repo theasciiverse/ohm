@@ -1,0 +1,15 @@
+title: Series and parallel
+unlock: two-doors
+para: Parts in series sit one after another in the same loop. The same current flows through all of them, and their resistances add: 100 Ω + 150 Ω makes 250 Ω.
+para: Parts in parallel sit side by side between the same two points. Each gets the full voltage, and the current splits between the paths.
+para: For switches this is logic. Two buttons in series both have to be pressed for the lamp to light (AND). Two in parallel, either one will do (OR).
+source: Kirchhoff's current law: the current flowing into a point equals the current flowing out.
+part: B battery 4.5 0.45 N
+part: P button W
+part: Q button W
+part: X lamp 15 1.35 N
+grid:
+┌┬P┬┐
+│└Q┘│
+B...X
+└───┘

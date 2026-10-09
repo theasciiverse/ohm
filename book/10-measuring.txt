@@ -1,0 +1,15 @@
+title: Measuring
+unlock: start
+para: The multimeter reads whatever your cursor is on. On a part: the voltage between its two legs, and the current through it. On copper: the voltage from there to the battery's - terminal.
+para: The scope draws a reading over time. Clip its probe onto a part with p (or PROBE, or a middle click), then flip a switch or press a button and watch the trace jump.
+para: Measuring beats guessing. When a job fails, point at each part in turn and ask: is the current what I expected?
+source: How the bench works.
+part: B battery 4.5 0.45 N
+part: S switch on W
+part: L led red N
+part: R resistor 220 0.25 N
+grid:
+┌─S─┐
+B...L
+│...R
+└───┘

@@ -1,0 +1,34 @@
+# The first job: an LED needs a resistor, and the resistor has to work for fresh and tired cells.
+# 150 and 220 ohm pass; 100 ohm runs the LED too hard on fresh cells, 1k leaves it too dim.
+name: Bike lamp
+customer: Mrs Berg, Storgatan
+fee: 40
+note: The bulb in my bike lamp blew twice this summer. Can you make it an LED, and make it last on tired batteries?
+battery: 2850
+book: leds, ohms-law
+part: B battery 4.5 0.45 N
+part: L led red N
+drawer: resistor 100 0.25 x2 0.10
+drawer: resistor 150 0.25 x2 0.10
+drawer: resistor 220 0.25 x2 0.10
+drawer: resistor 1k 0.25 x2 0.10
+drawer: switch x1 2.00
+case: LED 5-20 mA, 4.8 V | battery 4.8 | set SW1 on | lit LED1 5m 20m
+case: LED 5-20 mA, 3.3 V | battery 3.3 | set SW1 on | lit LED1 5m 20m
+case: dark when off | set SW1 off | dark LED1
+life: LED 5-20 mA, 4.8 V
+master-part: R resistor 220 0.25 W
+master-part: S switch on W
+master: ..........
+master: .┌──R───┐.
+master: .B......L.
+master: .└──S───┘.
+master: ..........
+master: ..........
+grid:
+..........
+..........
+.B......L.
+..........
+..........
+..........

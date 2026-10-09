@@ -1,0 +1,13 @@
+title: Switches and the loop
+unlock: porch-lamp
+para: A switch is a gap in the loop that you can open and close. Closed, current flows. Open, no current flows anywhere in the loop.
+para: An open switch has the whole battery voltage across its gap: nothing else in the loop carries current, so nothing else takes a share of the push. Point the multimeter at an open switch and see.
+para: A slide switch stays where you leave it. A push button closes only while it is held, and opens again when you let go.
+source: Kirchhoff's voltage law: the voltages round any closed loop add up to zero.
+part: B battery 4.5 0.45 N
+part: S switch off W
+part: X lamp 15 1.35 N
+grid:
+┌─S─┐
+B...X
+└───┘

@@ -1,0 +1,547 @@
+# Ohm's Workshop
+
+Asciiverse electronics puzzle game, Rust + Ratatui. Original IP. Short name and every technical
+id (folder, crate, binary, repo): `ohm`. A top-down electronics desk: jobs
+come into the inbox, you build each gadget on a circuit board from the parts drawers, and an
+embedded nodal-analysis solver decides what the circuit actually does. The arc runs from Ohm's law
+(a torch) through relays and logic to a small programmable chip. In the family of SHENZHEN I/O,
+Retro Gadgets and Turing Complete (see Inspiration), with a real analog solver as its own heart.
+
+**Status** (2026-10-09): chapter 1 playable from a launch page: six jobs that unlock one after
+another, each with ticks against the old master's par, the Master's Notebook with ten checked
+pages (the meter and scope read its example circuits), a save file. David has played the first
+job; the rest was built overnight (2026-10-08 to 09) and is covered by tests and headless shots,
+not yet by a person. Sound is in but not yet heard. No git repo.
+
+```bash
+cargo run --release                           # play (--mute for no sound)
+RUST_LOG=debug cargo run --release 2>ohm.log  # with a session log
+cargo test
+cargo run --release -- --bench                # numbers, spec runs and hints as text
+cargo run --release -- --shot desk --demo --cells | python3 tools/shot.py play.png
+  # --shot title|desk|gallery, --saved (from the save file), --demo builds the lamp, --secs S, --cursor X,Y,
+  # --overlay drawers|report|bookN, --size WxH
+```
+
+Save file: `$XDG_DATA_HOME/ohm/progress.txt` (else `~/.local/share/ohm/progress.txt`): the
+ledger, solved jobs, each job's best profit and ticks, every job's board as left, the job on
+the desk, sound off if turned off, the panel edges. Written two seconds after the last edit
+(so a closed window loses at most that), after a test, on switching job or going back to the
+launch page, and on quitting. Delete it to start over. `--mute` mutes one run without
+saving it.
+
+Code:
+- `src/solver.rs`: modified nodal analysis, LEDs by Newton, capacitors by backward Euler, a bench
+  supply with current limit, gradual heating and burn-out.
+- `src/circuit.rs`: the board (tiles, trace masks, jumpers, parts with facing and burnt state),
+  editing, embedding a job in the workbench, the netlist by union-find over tile-edge ports,
+  `trace_glyph`, and `Live` (a board as a running circuit, the current in every copper tile).
+- `src/bench.rs`: spec cases (`Lit`, `Dark`, `Volts`; several parts with `LED1+LED2`) and
+  `diagnose`, the three-step hints.
+- `src/job.rs`: the job file format (documented at its top), `jobs/*.txt` compiled in, the
+  master's solution, scores and ticks, and a test per job proving its intended answer passes
+  and the tempting wrong ones fail.
+- `src/book.rs`: the Notebook page format, `book/*.txt` compiled in, tests that every page names
+  a source and its worked examples match the solver.
+- `src/app.rs`: the game: launch page, jobs and unlocking, editing with undo, the live circuit,
+  mouse strokes, panel edges, the drawer, report and Notebook overlays, saving.
+- `src/progress.rs`: the save file. `src/input.rs`: terminal events into `Act`s, logged first.
+- `src/render.rs`: copper (colour by voltage, ripple for current), parts, the desk and its layout,
+  the overlays, the launch page, the gallery.
+- `src/audio.rs`: synthesised effects and the hum of current (helpers from SIGPIPE).
+- `src/printout.rs`: the printed bench. `src/main.rs`: the loop and the headless shots.
+- `tools/shot.py`: cells to PNG; draws box drawing and blocks as shapes, as VTE does.
+- `shots/`: every screen, rendered.
+
+## Name
+
+**Ohm's Workshop** (David, 2026-10-08). The game is a workshop: a desk, drawers, customers' jobs
+and an old master, and the full name says "puzzle game set somewhere" where plain "Ohm" could be
+a tool or a unit converter. In the fiction the town calls the old master "Ohm" and the shop is
+named after him, so the name belongs to our character rather than to Georg Ohm. In a Nordic
+setting the sign over the door can read "Ohms Verkstad". The apostrophe lives only in titles and
+display names, never in ids or file names.
+
+Checked 2026-10-08 by web search: no game, product or shop called "Ohm's Workshop". Nearest:
+Ohm's Quest (a steampunk escape-room puzzle console, 2023), Super Ohm (a small Windows circuit
+puzzle), OHMIC (an RPG Maker game). Trademark registers (TMview), Steam and itch.io not yet
+checked.
+
+## Pillars
+
+1. **The board is the circuit.** There is one grid. The glyphs are computed from it, and the
+   netlist is computed from it. Nothing is kept in sync by hand.
+2. **Honest electronics.** Real units, real component values and real behaviour. Simplify only
+   where it can't change an answer. Anything you learn here should work on a real breadboard.
+3. **Always alive.** The circuit runs while you build: current moves, parts glow, relays click.
+   A toy first, a test second.
+4. **Failure is a show, never a penalty.** Smoke, pops and a melting trace are fun to watch. One
+   key puts the burnt parts back.
+5. **Solvable by reasoning, findable by poking.** The maths is always available through the
+   multimeter and the datasheets, but you never need to do it on paper.
+6. **Resizing shows more, never bigger** (David, 2026-10-08). Making the terminal or a panel
+   bigger only reveals more content: more of the desk around the board, more history in the
+   scope, more lines of a note, more drawers. Nothing is zoomed or scaled: not the board, not
+   the parts, not the scope's trace, not the meter's digits.
+
+**Neighbour:** SIGPIPE is real-time pressure against a moving front; Ohm is a solver puzzle with
+no timer and no pressure (see `../sigpipe/CLAUDE.md`, "Neighbour to watch").
+
+## What SIGPIPE taught us
+
+SIGPIPE is the favourite of all David's titles with his daughters (David, 2026-10-08). What they
+loved, and what it means here:
+
+- **Watching the flow.** Current is drawn as brightness running through the copper, a smooth
+  ripple travelling the way the current flows and faster the more of it there is, the way
+  SIGPIPE's data runs green through its pipes. No dashes.
+- **The sound.** Synthesised clicks, clacks, hum, sizzle and pops are part of the game, not
+  polish for later.
+- **Short rounds and a bit of pressure.** Jobs stay small. Ohm keeps no timer that can fail you;
+  an idea to weigh is a rush job, where the customer waits at the counter and tips for speed.
+- **The mouse.** Everything can be played with the mouse alone, without learning a key.
+
+Multiplayer in SIGPIPE hasn't been tried by them yet, so it tells us nothing either way.
+
+## Inspiration
+
+Named by David, 2026-10-08. Store pages checked the same day.
+
+- **SHENZHEN I/O** (Zachtronics, 2016): build devices from components (microcontrollers, memory,
+  logic gates, LCDs), program them in a compact assembly language, with a manual of original
+  datasheets. Ohm takes the job-based desk, the datasheet binder and, late in the game, a small
+  programmable chip.
+- **Retro Gadgets** (Licorice and Studio Evil, early access 2022): a pixel-art workbench with parts
+  drawers, where you solder boards, add buttons, lights and displays, and program the CPU in Lua.
+  Ohm takes the workbench feel: drawers, physical parts, knobs and switches you operate.
+- **Turing Complete** (LevelHead, early access 2021): from NAND gates up to arithmetic, memory and
+  a full CPU with your own assembly language. Ohm takes the climb from simple parts to a computer.
+- **CRUMB Circuit Simulator** (Mike Bushell, 2022): a real-time 3D circuit simulator built to
+  feel like working at a workbench, with no goals or levels. Its parts range from passives,
+  diodes, BJTs and MOSFETs to logic, timers, op amps and a programmable microcontroller. It shows
+  currents and voltages on the circuit and has a four-channel scope. Ohm takes the live,
+  honest-physics workbench, and points it at puzzles.
+
+Where Ohm sits: CRUMB has honest physics but no puzzles, and the other three have puzzles built on
+logic and code. Ohm puts the puzzles on top of a real analog solver, so a torch, a blinker, a
+logic gate and the chip all obey the same physics. And it runs in a terminal.
+
+## Other circuit games and terminal versions (checked 2026-10-08)
+
+**Analog puzzle games are rare.** The only one found is Circuit Warz (2017, free): seven timed
+levels on series-parallel networks, RC filters, bridges, op-amp summers, transistor switches and
+oscillators, with a Moon Base Alpha alien-attack story; reviews Mixed (29). Electronics Puzzle
+Lab (Sagitta Studios, 2024) is a 3D puzzle game with logic gates, and says on its own page that it
+is not a precise simulator; one review asks for analog parts. R.E.E.L. is a maze puzzler built
+from circuit elements.
+
+**The closest game found: Strip & Rail** (paddylopez, browser, MIT, created 2026-09-27, 0 stars
+when checked). A breadboard puzzle game with a real simulator: nodal analysis, Newton iterations
+for diodes and LEDs, time steps for capacitors, a behavioural 555, a current-limited bench supply.
+Levels are judged by what the circuit does (an LED at 4-25 mA, a blink at 0.5-2 Hz), LEDs burn out
+without a resistor, strips glow by voltage, hovering shows readings, and every part is a card in a
+Binder. 13 levels, from LED and resistor to a 555 blinker. The difference from Ohm: each level
+hands you the schematic and the puzzle is building it on a breadboard, where Ohm hands you a
+customer's problem and the puzzle is designing the circuit. It is also a web page, not a
+terminal game, and teaches with a proof Rulebook rather than a job story.
+
+BREADBOARD 3D (Philippe Fauteux, Steam, May 2026) is another 3D breadboard sandbox with live
+voltage, current and power, a multimeter and a two-channel scope; no levels.
+
+**Digital and logic games are many:** KOHCTPYKTOP (Zachtronics), Silicon Zeroes (PleasingFungus
+Games, 2017), MHRD (Funghisoft, 2017, its own hardware description language up to a CPU, a 1980s
+startup, Very Positive with 439 reviews), Turing Complete, and the 1980s Learning Company games
+Rocky's Boots and Robot Odyssey (from memory, not checked).
+
+**In the terminal there is no circuit game.** What exists (repos read through the GitHub API):
+
+- **CCircuit** (phunanon, C++, Linux, GPL-3.0 in `src/LICENSE`, last push 2018-01-07): a
+  terminal logic sandbox inspired by Minecraft redstone. Every cell on a 4096x4096 board is one
+  character with an on or off state (`UN_`/`PW_` pairs in `src/globals.hpp`), and power spreads
+  from cell to cell; there are no voltages, currents or analog parts, and no goals. Its demos
+  show how far it goes: an 8-bit ALU, memory, a 5x7 display and an hh:mm:ss clock with
+  7-segment digits. Editing ideas worth having (ideas only, the code is GPL): crossing wires
+  bridge themselves, "far-lay" lays a long wire in one move, saved circuits load back as
+  components, copy-paste with flips, switches bound to the number keys, slow and fast motion.
+- **ASCII-Circuits** (allanwupi, Python, created 2026-09-26, no license): a small parser for a
+  text-file schematic language (`+-|` wires, parts named on the drawing, values in a separate
+  section) that writes a SPICE netlist for LTspice. It simulates nothing itself (its README names
+  its own MNA solver as a "tentative future goal") and is not interactive. Close to Ohm's
+  "drawing is the netlist" idea, and to how a job file could carry its board.
+- **oombak** (fuad1502, Rust, MIT, active in 2026): a ratatui UI over Verilator for SystemVerilog
+  designs, a chip designer's tool and not a game. Its waveform widget
+  (`oombak_tui/src/widgets/waveform.rs`) draws logic signals with heavy box lines (`━┃┏┓┗┛`) and
+  `╱╲╳` transitions, worth a look for Ohm's scope.
+- **Ascii-Circuit-Visualizer** (wiluxgit): an empty repo, a license and a one-line README, pushed
+  once in 2021.
+
+None of them combines the terminal, analog physics and puzzles.
+
+## What we take from Strip & Rail
+
+Read 2026-10-08 (commit `a7e4de6`, Patrick Lopez). MIT licence, so code may be adapted with its
+copyright notice kept; in practice we write Rust and take the ideas. Its solver is reassuringly
+small: union-find nets, dense Gaussian elimination with partial pivoting, SPICE-style `pnjlim`
+junction limiting, `GMIN = 1e-9`, a 0.5 ms time step, all in about 250 lines of `src/engine.js`.
+That confirms the size estimate for ours.
+
+- **Goals as named kinds that judge behaviour.** Its set (`lit`, `button`, `dimmer`, `blink`,
+  `afterglow`, `latch`, `oneshot`, `divider`, `ammeter`, `listen`, plus `all` to chain them) is a
+  good starting vocabulary for Ohm's spec cases. Each check returns pass or fail with one plain
+  sentence ("LED1 flashes at 0.74 Hz; this level wants 0.5-2 Hz").
+- **Diagnosis hints.** When the circuit fails, a hint list ordered most fundamental first (no
+  power, a dead short, a part with both legs on one net, a lonely leg, a backwards LED). Each hint
+  has three levels (a nudge, the specific problem, the fix) and highlights the holes involved. It
+  is built from the board's rules plus one powered trial, so it describes what the build actually
+  does. Ohm should have this from the first playable cut.
+- **Parts as data.** One file per part: pins with human names ("long leg (anode, +)"), parameters
+  with options (LED colours, each with its Vf and display colour), a model kind with its numbers
+  (`iMax`, `iBurn`), how it is drawn, and its card. A new part of an existing kind is data only;
+  only a new kind needs solver code.
+- **Every part is a card.** Cost, type, rules as keywords with reminder text ("**Polarised** (the
+  long leg is +)"), stats, a flavour line, collected in a Binder as levels introduce them. A strong
+  fit for Ohm's datasheet binder: one card per part, half-block art, opened on the part you hover.
+- **A bench supply with a current limit** that switches from constant voltage to constant current
+  like a real one. A short becomes a lesson rather than an explosion, and it is a lovely desk
+  object.
+- **Probe view:** a toggle that labels every net's voltage and every part's current at once.
+- **Calculators and proofs that unlock with the levels** (LED resistor, Ohm's law, R x C, divider),
+  each with a "why" link to a short proof. For Ohm: the master's notebook.
+- **"New in this level"** cards, and a **boss level** that combines earlier stages, briefed in
+  stages with "power up after each to check it".
+- **Breadboard evidence:** its board (strips, rails, the centre channel) makes a puzzle of its own
+  and reads well. That counts toward the open breadboard question.
+- **Players' own circuits as levels** (a parts list plus a netlist, or a KiCad export). Later, for
+  Ohm's sandbox.
+
+Ohm keeps its own core: a customer's problem to design for, not a schematic to copy.
+
+## The desk
+
+You're the new apprentice at a small electronics repair shop, working at a desk seen from above.
+Every job arrives in the inbox as a gadget with a handwritten note from its owner ("the bike lamp
+eats batteries", "the doorbell only works when it rains"). The board is the gadget's insides. Some
+parts are fixed in place (the battery holder, the bulb socket, the button the customer presses);
+you build the rest from the parts drawers.
+
+On the desk:
+- **Inbox:** the jobs, each with its note and spec.
+- **Board:** the circuit, in the middle.
+- **Parts drawers:** what you have for this job, with quantities and prices.
+- **Multimeter:** reads V, I and P wherever you point, with a half-block needle that swings
+  smoothly.
+- **Scope:** a trace over time, for blink rates and delays.
+- **Datasheet binder:** the in-game manual, one page per part, opened on the part you hover.
+
+Rough desk layout:
+
+```
+┌ INBOX ───────┐┌ BOARD ─────────────────────────┐┌ DRAWER ─┐
+│> Mrs Berg    ││ . . . . . . . . . . . . . . .  ││ R  220  │
+│  bike lamp   ││ .[+ AA -]══╤══[▌▓▐]══(o)══╗ .  ││ R  1k   │
+│  Mr Lund     ││ .          ║              ║ .  ││ LED red │
+│  doorbell    ││ .══════════╧════[/ ]══════╝ .  ││ SW      │
+│              ││ . . . . . . . . . . . . . . .  ││         │
+└──────────────┘└────────────────────────────────┘└─────────┘
+┌ MULTIMETER ──┐┌ SCOPE ────────────┐┌ DATASHEETS ──┐
+│   4.82 V DC  ││  _/^\_/^\_/^\_    ││ LED, red     │
+└──────────────┘└───────────────────┘└──────────────┘
+```
+
+**The drawer overlay** (David, 2026-10-08): clicking the DRAWERS title (or `d`) opens every
+drawer as a card with its picture, scrollable, over the board and the drawers; picking one (a
+click, or arrows and Enter) snaps back to the list with that part in hand. Choosing a part is a
+moment of its own, so here an overlay is right.
+
+**Panels grow in place; the board never moves** (David, 2026-10-08). The circuit stays live while
+you look at things, so nothing covers the board. Clicking a panel's title (or its key) grows it
+along its own strip, and the neighbours it borrows from fold down to their title line; clicking
+the title again, or Esc, snaps it back. A folded panel's title stays clickable, to swap.
+
+- **Scope:** across the whole bottom row (about 96 columns instead of 50): a longer time window,
+  finer detail. Multimeter and datasheet fold.
+- **Datasheet:** up the whole right column: the full card, every rule, live readings, a line on
+  why the part behaves that way. Drawers fold.
+- **Inbox:** down the whole left column: the full note, the whole spec, the customer's history.
+  Multimeter folds.
+- **Multimeter:** up the left column: more readings at once (V, I and P of the probed part, more
+  probes). Inbox folds.
+- **Drawers:** down the right column: every part with its card summary. Datasheet folds.
+
+Discoverable: each title carries a small `+` or `-`, and the hint row says "click a title to
+enlarge it" with the keys. A bigger terminal gives every panel more room on its own, as the other
+titles scale to the window; enlarging hands one panel the extra on top of that. **Overlays** are
+kept for things that are not panels: the Binder of every card, the test bench report after T, the
+job ledger.
+
+- **Score is in the fiction:** the customer pays a fee and the parts come out of it, so profit is
+  the cost score. The old master's own solution is the par.
+- **Visible payoff:** when the circuit passes, the gadget comes alive on the desk (the lamp
+  lights, the doorbell shakes).
+- **Light story:** notes, a few regular customers, the master's margin comments in the job ledger.
+  No cutscenes.
+
+## Simulation
+
+**Units are real:** V, A, W, Ω, F. Resistors come only in E12 values (1.0, 1.2, 1.5, 1.8, 2.2,
+2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2 per decade), which is what makes divider puzzles interesting.
+
+| Part | Model | Chapter |
+|---|---|---|
+| Trace, crossover | merged into nodes, zero resistance | 1 |
+| Battery | ideal source plus internal resistance (a short is survivable and dramatic) | 1 |
+| Lamp | fixed resistance at its rated value | 1 |
+| Switch, push button, two-way switch | open or closed contact | 1 |
+| Resistor | linear, with a power rating: smokes, then burns open | 1 |
+| LED (colour sets Vf) | exponential diode via Newton; overcurrent kills it | 1-2 |
+| Potentiometer, LDR, thermistor | three-terminal and variable resistors | 2 |
+| Fuse | opens above its rating | 2 |
+| Capacitor | backward-Euler companion model; an electrolytic pops if reversed or over-volted | 3 |
+| Relay | coil as a resistor, pull-in/drop-out hysteresis, a few ms of contact delay (which is what makes buzzers oscillate). Coil and contacts share a label (K1), as in ladder diagrams | 4 |
+| Diode, BJT transistor | Newton models, BJT kept simple | 5 |
+| Logic gate ICs, 7-segment display | behavioural, powered implicitly | 6 |
+| Programmable chip | behavioural: reads and drives its pins each step, running a tiny assembly program | 7 |
+
+No AC mains, no inductors as player parts.
+
+**Solver: our own, about 600 lines, no linear-algebra crate.** Plain nodal analysis: batteries
+have internal resistance, so each becomes a conductance plus a current source and no extra
+unknowns are needed. Dense Gaussian elimination with partial pivoting in f64, under 100 nodes. A
+tiny gmin to ground on every node, so floating islands solve cleanly. Newton iteration with
+junction-voltage step limiting for nonlinear parts. Backward Euler at a fixed step, sub-stepped
+each frame.
+
+Why our own: the game needs one-step-per-frame stepping, game-specific parts (burning, relay
+delay, behavioural ICs, the programmable chip) and deterministic tests. Crates surveyed
+2026-10-08: sindr (MNA, Newton, backward Euler, MIT/Apache, `0.1.0-alpha.6`, depends on nalgebra;
+docs describe end-to-end solves, no documented single-step transient API; source not read), rspice
+(AGPL, no nonlinear parts yet), cayenne (2021, tiny), tiny-spice-rs. sindr is the reference to
+check our results against.
+
+The solver is a pure module (no ratatui, no clock), tested against textbook answers: a divider,
+series and parallel combinations, an RC curve at 63.2% after τ, an LED current, a relay buzzer's
+frequency.
+
+## The board
+
+- **A physical board seen from above** (David, 2026-10-08): perfboard dots, copper traces in
+  box drawing, parts drawn as small physical objects in half-blocks (resistors with their real
+  colour bands, LED domes, battery holders, chips with legs). No schematic view.
+- **Tiles are 5x3 characters** (roughly square on screen, a middle row and column for traces).
+  At 100x30 (`../../hub/RECORDING.md`) the desk leaves the board 50x18 characters: **10x6 tiles**.
+  Puzzles are small on purpose.
+- **One workbench, filling the BOARD panel** (David, 2026-10-08). The job's board is laid in the
+  middle of one big perfboard (48x26 tiles); the panel is a window onto it. Tiles stay 5x3
+  characters at every size: a bigger terminal or panel shows more of the same board, never
+  bigger tiles. The job's own area shows slightly brighter holes. Keyboard moves keep the cursor
+  in view; a middle-button drag pans (a middle click without dragging clips the probe on).
+  (Two first tries were taken out: drawing the board twice as large in big terminals, and a
+  small board on a gridded mat, which read as two workbenches.)
+- **Panel edges drag with the mouse** (David, 2026-10-08): the seam between the left column and
+  the board, between the board and the right column, and between the top and bottom rows. An
+  edge lights amber under the mouse and while dragged; right-click puts it back.
+- **Erasing is visible** (David asked, 2026-10-08): the ERASE button picks up the eraser (the
+  cursor tile turns red; click or drag to remove copper and parts; Esc puts it down), besides
+  `x` at the cursor and right-click or right-drag.
+- **Cells:** `Empty`, `Blocked` (board shape), `Trace { mask: u8 }` (N/E/S/W bits, like sigpipe's
+  `Dir::bit`), `Cross` (two independent nets, a jumper), `Part { id }`. Parts are a list of
+  `{ kind, value, pos, rot, fixed }`; two- and three-terminal parts fit in one tile with pins on
+  its edges. Chips span several tiles.
+- **Netlist:** each tile edge is a port; a trace's mask joins its ports, and union-find merges
+  them into nodes. Neighbouring ports connect only when both sides open toward each other; a
+  one-sided connection is a dangling end, drawn as a stub and shown as a hint.
+- **Trace glyphs come from the mask.** Parts use hand-drawn 5x3 art per rotation. A T-joint
+  always connects; a four-way tile is either a junction or a jumper crossing, toggled.
+- **Glyph safety:** `▶◀●×` misalign in some terminals (font fallback draws them wide), so the art
+  uses box drawing, blocks and ASCII. Unicode's East Asian Width table is no guide here: it lists
+  box drawing and half blocks as "ambiguous" too, and every sibling game draws with them. `Ω` is
+  also "ambiguous" and not yet checked on screen; `µ` (U+00B5, the micro sign) is narrow by the
+  table. Step 3's gallery is where each glyph gets checked by eye.
+
+Powered, the copper's colour shows its voltage (cold copper at 0 V, warm gold at the top), and
+current runs through it as a ripple of brightness in the direction it flows, faster for more
+current (log scale). The idea of showing both on the wires is Paul Falstad's circuit simulator's.
+
+## Controls
+
+**Mouse and keyboard are both first-class, and work together.** Every action can be done with
+either one, and you can mix them freely: the mouse moves the cursor, so a key press acts on
+whatever tile the pointer is over (hover a part and press R to rotate it, or hover a switch and
+press E to flip it). Neither one is the "real" input with the other added on later.
+
+- **Keyboard:** arrows/WASD/hjkl move. **Shift+move lays trace** behind the cursor. Space places
+  the selected part, R rotates, X/Del erases, Tab or 1-9 picks a drawer slot, E operates the part
+  under the cursor (flip a switch, hold a button, turn a pot), U/Ctrl-Z undo, Ctrl-Y redo, T test
+  bench, Esc back. **No bare `q` quit.**
+- **Mouse:** drag lays trace, click places, right click erases, click flips a switch, wheel turns
+  a pot. Inbox, drawers, binder and buttons are clickable.
+- **Gamepad** (gilrs, SDL-mapped pads only): D-pad moves, hold A lays trace, B erases, shoulders
+  cycle the drawer, X rotates, Y operates.
+- **Discoverable:** a hint row always shows the keys for the current context, the drawers show
+  every part you have, and every change can be undone.
+
+## Feedback and winning
+
+- **Multimeter and scope:** the multimeter reads whatever the cursor (or the pointer) is on.
+  The scope does too until a probe is clipped on: `p` at the cursor, the PROBE button then a
+  click, or a middle click. Then it watches that part or copper wherever the cursor goes, marked
+  with a red P. `p` or PROBE again takes it off.
+- **Failures, graded:** a resistor glows dull red, then amber, then smokes (half-block puffs) and
+  burns open. An LED flares and goes dark. A shorted battery makes the trace glow, then a fuse
+  pops. A reversed electrolytic bangs.
+- **Test bench:** each job's spec is a short list of cases. The bench runs them deterministically,
+  faster than real time, and shows each case's expected value, measured value and pass or fail,
+  with the scope showing time-based specs. Passing pays the fee and the gadget comes to life.
+- **Ticks, the reward** (built 2026-10-09, David asked for the challenge, the reward and the
+  counting to be clearer). Every job shows up to three ticks, on its paper in the inbox before
+  you start and beside its name in the list: **it works** (the spec passes), **parts** (cost no
+  more than the old master's), **battery** (lasts at least as long as his, only on jobs where
+  `life:` names the case that drains it). The master's own solution is in each job file
+  (`master:` rows), and a test proves it passes. Ticks once earned stay.
+- **The money:** the first pass pays the fee less the parts. A later build that's cheaper pays
+  the difference against your best. The battery tick earns a tip of a tenth of the fee, once.
+  The report compares your build with the master's line by line. Saved per job as
+  `best ID PROFIT thrifty frugal`.
+- **Later, proposed:** money buys workshop things (bench supply, a second probe, bigger drawers,
+  desk decorations; never the learning), and a shelf of finished gadgets on the launch page.
+  For chip jobs, program length as a fourth tick. No server, so no global histograms.
+- **Chapter 1's prices** mostly make the parts tick come with working (only waste misses it);
+  later jobs should offer a dearer easy part and a cheaper clever one.
+
+## The Master's Notebook (built 2026-10-09, David asked 2026-10-08)
+
+A guided book of teaching cards about basic electronics, in the fiction the old master's
+notebook. Strip & Rail's Rulebook is the reference for the idea (pages that unlock with the
+levels, each with its reason); ours is written fresh.
+
+- **A page per idea,** short and plain: what it is, why it matters, a formula only when it earns
+  its place, and a small example circuit drawn with the same board tiles, live, so a reader can
+  flip its switch and read its meter.
+- **Pages unlock as jobs need them,** and a job's note can point to the page it builds on.
+  Opened from a NOTEBOOK button or `n`, as an overlay (a moment of its own, like the drawers).
+- **First pages, for chapter 1:** current; voltage; resistance and Ohm's law; the closed loop
+  and switches; series and parallel; LEDs (polarity, forward voltage, why they need a resistor);
+  power and heat (watts and ratings); the resistor colour code; batteries (internal resistance,
+  capacity and how long it lasts); measuring (multimeter and scope).
+- **Every fact checked** against a real reference before it ships; each page lists its source.
+  Checked 2026-10-09: red LED 2.0 V at 20 mA (SparkFun COM-09590), bright green and blue 3.2 V
+  (Multicomp Pro 5 mm datasheet), classic GaP green 2.2 V (Kingbright L-5A7GD), the AA and 9 V
+  figures above, IEC 60062 for the colour code.
+- **Files:** `book/NN-topic.txt`, compiled in like the jobs. Besides text, a page can hold
+  `colours:` (the colour code chart, each band on a scrap of resistor body) and `resistor: 4k7`
+  (a resistor drawn large with its bands). Opened with `n`, the NOTEBOOK label in
+  the inbox's border, or from the launch page. Each page's example circuit runs live beside its
+  text, with every part's reading; clicking a switch on the page flips it. Job notes end with the
+  pages they build on ("Notebook: LEDs, Ohm's law").
+
+## The launch page (built 2026-10-09, David asked 2026-10-08)
+
+The first screen: the title drawn as copper traces with current rippling through the letters,
+and a menu: Start or Continue, The Master's Notebook, Sound on/off, Quit (no bare `q`). Esc on
+the desk with nothing in hand comes back here. Jobs are picked in the inbox (click, or PgUp and
+PgDn); each unlocks when the one before is solved, and keeps its board while you visit another.
+Everything clickable, keys shown. Fixed-size art centred in the terminal (pillar 6: a bigger
+terminal shows more desk round it, never a bigger title).
+
+## Puzzles
+
+A job is a gadget, a note, a board with its fixed parts and blocked cells, a drawer (parts,
+quantities, prices), a fee and the spec cases. Most specs are **ranges over cases** ("LED between
+10 and 20 mA for any battery from 4.5 V to 6.0 V"), which keeps the obvious answer from being the
+right one.
+
+**Chapter 1 as built** (2026-10-09), each proven by a test in `src/job.rs`:
+
+| Job | Customer | Teaches | Passes | Fails |
+|---|---|---|---|---|
+| Bike lamp | Mrs Berg | an LED needs a resistor | 150 or 220 Ω, and a switch | 100 Ω (too bright fresh), 1 kΩ (too dim) |
+| Porch lamp | Mr Lund | a push button is momentary | a button | a slide switch |
+| Two doors | Mrs Ek | parallel is OR | two buttons side by side | two in a row (AND) |
+| Doll's house | Elsa, 8 | each LED its own resistor | 150 or 220 Ω per LED | one shared 100 Ω: red hogs, green starves on tired cells (2.6 mA) |
+| Christmas star | Mr Nilsson | LEDs in series share one current | three red in series, 220 Ω, a switch | 100 Ω (too bright fresh), 470 Ω (too dim tired) |
+| Café sign | Café Ohlsson | power ratings | 22 Ω 2 W | 22 Ω 0.25 W burns, 47 Ω burns too |
+
+Battery figures: AA alkaline 2850 mAh at 25 mA, 150 to 300 mΩ fresh (Energizer E91 datasheet);
+9 V block 625 mAh (Eveready 522 datasheet). Not from a datasheet, chosen: the 9 V block's 1.5 Ω
+inside (its datasheet gives none), the van battery's 0.05 Ω, bulbs as fixed resistances.
+
+Chapters follow the drawers:
+
+1. **Light:** a torch, two bulbs in series vs parallel, a stair light switched from either end
+   (two-way switches), "don't fry the LED", an LED that stays in range as the battery runs down.
+2. **Measure:** dividers from E12 values only, a battery checker, a fuel gauge, a pot dimmer.
+3. **Time:** RC delays, a fade-out courtesy light, a stairwell timer light.
+4. **Relays:** a self-holding start/stop circuit, AND/OR/NOT, a doorbell buzzer, a traffic-light
+   sequencer.
+5. **Semiconductors:** diode protection, a transistor switch, a dusk night light, the
+   two-transistor blinker.
+6. **Logic:** gates, flip-flops, a counter, a 7-segment display.
+7. **The chip:** a small programmable chip with its own tiny assembly language, reading and
+   driving real pins on the analog board. The finale is a small machine such as an electronic die
+   or a reaction game.
+
+**Levels:** `jobs/NN-name.txt` in the moraen/marble style (`key: value` headers for name, note,
+fee, drawer and cases, then `grid:` with a character map of fixed parts and blocked cells),
+compiled in with `include_str!`, saved under stable ids.
+
+## Technical layout
+
+Same crates as sigpipe: ratatui 0.30, log + env_logger, rodio 0.22 (playback only), gilrs 0.11 as
+an optional `gamepad` feature (on by default). No linear-algebra crate.
+
+- `solver.rs`: pure maths
+- `circuit.rs`: grid, netlist building, part models
+- `chip.rs`: the programmable chip's assembler and interpreter (chapter 7, later)
+- `job.rs`: level format and parser
+- `bench.rs`: running spec cases
+- `render.rs`: desk, board, parts, dots, gadgets
+- `input.rs`: the `Act` enum
+- `audio.rs`: synthesised relay clicks, switch clacks, 50 Hz hum, sizzle, pops, ka-ching
+- `progress.rs`: save data (your solution for every job, not just pass/fail)
+- `main.rs`: screens, loop, session logging (raw input, transitions, 500 ms snapshot), headless
+  `--shot`
+
+**Stretch:** in an oscillator job, the speaker plays the circuit's simulated waveform itself.
+
+## Build order
+
+Each step is seen working before the next starts. Nothing here needs a repo until David asks.
+
+1. [x] **Solver and its tests** (pure Rust, no UI): resistors, switches, batteries with internal
+       resistance, a current-limited bench supply, LEDs by Newton with burn-out, capacitors by
+       backward Euler, resistors that heat and burn open. 17 textbook tests (2026-10-08).
+2. [x] **Board model, netlist and diagnosis hints** (still headless): tiles, masks, union-find,
+       the spec-case checks and the three-level hints from Strip & Rail, a test per hint
+       (2026-10-08). A blink check waits for the first part that can blink (relays).
+3. [x] **Look before building:** a headless gallery of every part and trace glyph, and the whole
+       desk at 100x30, rendered to text and PNG for David to judge. Settles board type, tile size
+       and desk layout. David approved the gallery and
+       asked to build (2026-10-08), so the look and the 5x3 tiles stay for now.
+4. [x] **First playable job, end to end** (2026-10-08): mouse and keyboard editing (drag lays
+       copper, right-click erases, wheel rotates, buttons in the board frame), live simulation
+       with current rippling through the copper, multimeter, scope, datasheet card, the drawer
+       overlay, test bench with hints and pay, sound, session logging. Next: David plays it.
+5. [x] **The launch page and the Master's Notebook** (ten pages) (2026-10-09).
+6. [x] **Chapter 1**: six jobs, unlocking, the save file (2026-10-09). Still to do from this
+       step: the card binder, the bench supply as a desk object, panels that grow when their
+       title is clicked, and David (and his daughters) playing it.
+7. [ ] **Chapters 2 and 3**: version 1.
+8. [ ] Later: relays, semiconductors, logic, the chip, the sandbox desk.
+
+## Open decisions
+
+- [x] Framing: a top-down electronics desk (David, 2026-10-08)
+- [x] Board look: a physical board, no schematic view (David, 2026-10-08)
+- [x] Arc: analog first, relays and logic, a programmable chip at the end (David, 2026-10-08)
+- [ ] Setting: a specific place and era (proposed: a small Nordic town, early 1980s, prices in
+      kronor), or kept neutral?
+- [ ] Realism: real units and E12 values throughout?
+- [ ] Desk layout and board size at 100x30
+- [ ] Scope: version 1 is chapters 1 to 3 (about 18 jobs)?
+- [ ] Scope trace: half-block (house style), or a Braille exception for this one display?
+- [ ] The chip's language: instruction set, pin model, program size limit
+- [ ] A sandbox desk (free building with every unlocked part, no job), as SHENZHEN I/O and CRUMB
+      both have?
+- [ ] Board type: perfboard throughout, or a breadboard with jumper wires for the early chapters?
+- [x] Name: Ohm's Workshop, short id `ohm` (David, 2026-10-08)
+- [ ] Name checks (TMview, Steam, itch.io): not done yet

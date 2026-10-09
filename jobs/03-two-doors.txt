@@ -1,0 +1,28 @@
+# Two buttons, either lights the lamp: buttons side by side (parallel), not one after the other.
+name: Two doors
+customer: Mrs Ek, Bakgatan
+fee: 45
+note: Mr Lund showed me his porch lamp. I want one too, but I have a front door and a back door, and a button at each should light the same lamp.
+battery: 2850
+book: series-parallel
+part: B battery 4.5 0.45 N
+part: X lamp 15 1.35 N
+drawer: button x2 1.50
+case: front button | set PB1 on | set PB2 off | lit LP1 200m 400m
+case: back button | set PB1 off | set PB2 on | lit LP1 200m 400m
+case: dark, no button | set PB1 off | set PB2 off | dark LP1
+master-part: P button W
+master-part: Q button W
+master: ..........
+master: .┌─┬P┬──┐.
+master: .B.└Q┘..X.
+master: .└──────┘.
+master: ..........
+master: ..........
+grid:
+..........
+..........
+.B......X.
+..........
+..........
+..........

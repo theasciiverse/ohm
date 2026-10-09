@@ -1,0 +1,18 @@
+title: The colour code
+unlock: start
+para: Resistors are too small to print numbers on, so their value is painted on in bands. Read from the end the bands are crowded towards.
+para: Each colour stands for a digit:
+colours:
+para: The first two bands are digits, the third is how many zeros follow, and a gold band at the end means the value is within 5 %.
+para: Red, red, brown: 2, 2, and one zero: 220 Ω.
+resistor: 220
+para: Yellow, violet, red: 4, 7, two zeros: 4700 Ω, written 4k7.
+resistor: 4700
+source: IEC 60062, Marking codes for resistors and capacitors.
+part: B battery 4.5 0.45 N
+part: R resistor 220 0.25 W
+part: S resistor 4700 0.25 W
+grid:
+┌─R─┐
+B...│
+└─S─┘

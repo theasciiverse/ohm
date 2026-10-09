@@ -1,0 +1,13 @@
+title: Power and heat
+unlock: cafe-sign
+para: Power is how fast energy is turned into heat or light: power = voltage × current, P = V × I, in watts (W).
+para: A resistor turns all of its power into heat, and every resistor has a rating: a common small one takes 0.25 W. Run it harder and it gets hot, smokes, and burns open.
+para: On a 12 V battery, a 22 Ω resistor and a 20 Ω bulb share the push: 12 / 42 = 0.29 A flows, about 6.3 V lands across the resistor, and it makes 6.3 × 0.29 = 1.8 W of heat. A 0.25 W part burns out; a 2 W part copes. Same resistance, bigger body.
+source: Joule's first law: the heat made in a resistor is P = I² × R = V × I.
+part: B battery 12 0.05 N
+part: R resistor 22 2 W
+part: X lamp 20 1.8 N
+grid:
+┌─R─┐
+B...X
+└───┘
