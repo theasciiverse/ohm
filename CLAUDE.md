@@ -11,7 +11,7 @@ Retro Gadgets and Turing Complete (see Inspiration), with a real analog solver a
 another, each with ticks against the old master's par, the Master's Notebook with ten checked
 pages (the meter and scope read its example circuits), a save file. David has played the first
 job; the rest was built overnight (2026-10-08 to 09) and is covered by tests and headless shots,
-not yet by a person. Sound is in but not yet heard. Local git repo (2026-10-09), no remote.
+not yet by a person. Sound is in but not yet heard. Own git repo, private at github.com/theasciiverse/ohm (2026-10-09).
 
 ```bash
 cargo run --release                           # play (--mute for no sound)
