@@ -12,6 +12,8 @@
 //! drawer: resistor 220 0.25 x2 0.10         (a part, how many (x- for any), price in kronor)
 //! case: LED 5-20 mA | battery 4.8 | lit LED1 5m 20m
 //! life: LED 5-20 mA                         (the case whose current drains the battery, if any)
+//! hint-parts: Four small resistors ...      (the master's word when you miss the parts tick)
+//! hint-battery: The bigger the resistor ...  (and when you miss the battery tick)
 //! master-part: R resistor 220 0.25 W        (a part in the master's own solution)
 //! master: .B──R─L.                          (one row of his solution; the grid's parts too)
 //! grid:
@@ -64,6 +66,9 @@ pub struct Job {
     pub life: Option<String>,
     /// The old master's own solution: the par for parts cost and battery life.
     pub master: Board,
+    /// The master's word when a build misses the parts tick, or the battery tick.
+    pub hint_parts: Option<String>,
+    pub hint_battery: Option<String>,
 }
 
 /// How a build scores: what its parts cost, and how long the battery lasts.
@@ -233,6 +238,8 @@ impl Job {
             cases: Vec::new(),
             life: None,
             master: Board::new(1, 1),
+            hint_parts: None,
+            hint_battery: None,
         };
         let mut legend = Vec::new();
         let mut master_legend = Vec::new();
@@ -272,6 +279,8 @@ impl Job {
                 }
                 "master" => master.push(value.replace('.', " ")),
                 "life" => job.life = Some(value.into()),
+                "hint-parts" => job.hint_parts = Some(value.into()),
+                "hint-battery" => job.hint_battery = Some(value.into()),
                 "drawer" => {
                     let w: Vec<&str> = value.split_whitespace().collect();
                     let (k, used) = kind(&w).map_err(err)?;
@@ -518,6 +527,28 @@ mod tests {
         assert_eq!(solve(5, &rows, &legend(2.0, 22.0)), [true, true]);
         assert_eq!(solve(5, &rows, &legend(0.25, 22.0)), [false, false]);
         assert_eq!(solve(5, &rows, &legend(0.25, 47.0)), [false, false]);
+        // The 2 W resistor works but costs more than the master's four 1 W ones side by side.
+        let job = Job::load(5);
+        let mut b = job.board.clone();
+        b.place(Kind::Resistor { ohms: 22.0, watts: 2.0 }, Pos { x: 4, y: 1 }, Dir::W, false);
+        let mine = job.score(&b);
+        assert!((mine.cost - 1.50).abs() < 1e-9 && (job.par().cost - 1.20).abs() < 1e-9);
+        assert_eq!(job.ticks(true, mine), Ticks { works: true, thrifty: false, frugal: true });
+        // And the master's four share the heat: each well inside its 1 W at 13.8 V.
+        let case = job.cases.iter().find(|c| c.battery == Some(13.8)).unwrap();
+        assert!(run_case(&job.master, case).pass);
+        let mut hot = job.master.clone();
+        for p in &mut hot.parts {
+            if let Kind::Battery { volts, .. } = &mut p.kind {
+                *volts = 13.8;
+            }
+        }
+        let mut live = crate::circuit::Live::build(&hot);
+        live.sim.solve_dc().unwrap();
+        for label in ["R1", "R2", "R3", "R4"] {
+            let w = live.reading(&hot, hot.part(label).unwrap()).watts;
+            assert!(w > 0.5 && w < 0.7, "{label} {w}");
+        }
     }
 
     #[test]

@@ -613,9 +613,17 @@ impl App {
             self.audio.play(Sfx::Fail);
         }
         let goals = self.goals(self.current, Some((mine, ticks)));
+        // A passing build that misses a tick gets the master's word on how he did it.
+        let mut notes = Vec::new();
+        if pass && !ticks.thrifty {
+            notes.push(self.job.hint_parts.clone().unwrap_or_else(|| "The master used fewer parts: is every one of yours needed?".into()));
+        }
+        if pass && !ticks.frugal && let Some(h) = &self.job.hint_battery {
+            notes.push(h.clone());
+        }
         log::info!("test bench: {}", if pass { "pass" } else { "fail" });
         self.save();
-        self.overlay = Overlay::Report(Report { pass, rows, goals, summary, hint });
+        self.overlay = Overlay::Report(Report { pass, rows, goals, notes, summary, hint });
     }
 
     /// The ticks a job has earned so far, one per goal it has (no battery tick where the

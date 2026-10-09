@@ -11,7 +11,7 @@ Retro Gadgets and Turing Complete (see Inspiration), with a real analog solver a
 another, each with ticks against the old master's par, the Master's Notebook with ten checked
 pages (the meter and scope read its example circuits), a save file. David has played the first
 job; the rest was built overnight (2026-10-08 to 09) and is covered by tests and headless shots,
-not yet by a person. Sound is in but not yet heard. No git repo.
+not yet by a person. Sound is in but not yet heard. Local git repo (2026-10-09), no remote.
 
 ```bash
 cargo run --release                           # play (--mute for no sound)
@@ -405,8 +405,11 @@ press E to flip it). Neither one is the "real" input with the other added on lat
 - **Later, proposed:** money buys workshop things (bench supply, a second probe, bigger drawers,
   desk decorations; never the learning), and a shelf of finished gadgets on the launch page.
   For chip jobs, program length as a fourth tick. No server, so no global histograms.
-- **Chapter 1's prices** mostly make the parts tick come with working (only waste misses it);
-  later jobs should offer a dearer easy part and a cheaper clever one.
+- **Prices with real choices:** a job should offer a dearer easy part and a cheaper clever one.
+  In chapter 1 only the café sign does (four 100 Ω 1 W side by side, 1.20 kr, against one
+  22 Ω 2 W, 1.50 kr); elsewhere every honest answer costs the same and the parts tick only
+  catches waste. A missed tick gets the master's word in the report (`hint-parts:`,
+  `hint-battery:` in the job file).
 
 ## The Master's Notebook (built 2026-10-09, David asked 2026-10-08)
 
@@ -459,7 +462,7 @@ right one.
 | Two doors | Mrs Ek | parallel is OR | two buttons side by side | two in a row (AND) |
 | Doll's house | Elsa, 8 | each LED its own resistor | 150 or 220 Ω per LED | one shared 100 Ω: red hogs, green starves on tired cells (2.6 mA) |
 | Christmas star | Mr Nilsson | LEDs in series share one current | three red in series, 220 Ω, a switch | 100 Ω (too bright fresh), 470 Ω (too dim tired) |
-| Café sign | Café Ohlsson | power ratings | 22 Ω 2 W | 22 Ω 0.25 W burns, 47 Ω burns too |
+| Café sign | Café Ohlsson | power ratings | 22 Ω 2 W; par: four 100 Ω 1 W side by side | 22 Ω 0.25 W burns, 47 Ω burns too |
 
 Battery figures: AA alkaline 2850 mAh at 25 mA, 150 to 300 mΩ fresh (Energizer E91 datasheet);
 9 V block 625 mAh (Eveready 522 datasheet). Not from a datasheet, chosen: the 9 V block's 1.5 Ω

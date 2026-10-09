@@ -16,6 +16,7 @@ drawer: switch x1 2.00
 case: LED 5-20 mA, 4.8 V | battery 4.8 | set SW1 on | lit LED1 5m 20m
 case: LED 5-20 mA, 3.3 V | battery 3.3 | set SW1 on | lit LED1 5m 20m
 case: dark when off | set SW1 off | dark LED1
+hint-battery: The bigger the resistor, the less current flows and the longer the cells last. Pick the biggest that still keeps the LED in spec.
 life: LED 5-20 mA, 4.8 V
 master-part: R resistor 220 0.25 W
 master-part: S switch on W

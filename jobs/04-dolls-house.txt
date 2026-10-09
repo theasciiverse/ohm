@@ -15,6 +15,7 @@ drawer: resistor 150 0.25 x2 0.10
 drawer: resistor 220 0.25 x2 0.10
 case: both 5-20 mA, 4.8 V | battery 4.8 | lit LED1+LED2 5m 20m
 case: both 5-20 mA, 3.3 V | battery 3.3 | lit LED1+LED2 5m 20m
+hint-battery: The bigger the resistors, the less current flows and the longer the cells last, as long as both LEDs stay in spec.
 life: both 5-20 mA, 4.8 V
 master-part: R resistor 220 0.25 W
 master-part: S resistor 220 0.25 W

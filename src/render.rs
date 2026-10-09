@@ -1454,6 +1454,8 @@ pub struct Report {
     pub rows: Vec<(String, bool, String)>,
     /// Each goal, this build against the master's, earned or not.
     pub goals: Vec<(String, bool)>,
+    /// The master's word on a tick missed.
+    pub notes: Vec<String>,
     pub summary: Vec<String>,
     pub hint: Option<[String; 3]>,
 }
@@ -1480,6 +1482,12 @@ pub fn report(buf: &mut Buffer, l: &Layout, r: &Report) {
             text(buf, o.x + 2, y, checkbox(*t), if *t { AMBER } else { DIM }, DESK);
             text(buf, o.x + 6, y, line, if *t { TEXT } else { DIM }, DESK);
             y += 1;
+        }
+        for note in &r.notes {
+            for (k, line) in wrap(&format!("The master: {note}"), w - 4).into_iter().enumerate() {
+                text(buf, o.x + 6, y, &line, if k == 0 { AMBER } else { TEXT }, DESK);
+                y += 1;
+            }
         }
         y += 1;
     }

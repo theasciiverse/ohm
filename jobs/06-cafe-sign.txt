@@ -1,5 +1,7 @@
 # A 6 V bulb on a 12 V battery: the resistor must burn off half the power, about 2 W. A small
-# 0.25 W resistor of the right value burns out; the 2 W one costs more and survives.
+# 0.25 W resistor of the right value burns out; the 2 W one survives. The master's way is
+# cheaper: four 100 ohm 1 W resistors side by side make 25 ohm and share the heat, about
+# 0.59 W each at 13.8 V (4 x 0.30 = 1.20 kr against 1.50 kr).
 name: Café sign
 customer: Café Ohlsson
 fee: 70
@@ -11,15 +13,20 @@ part: X lamp 20 1.8 N
 drawer: resistor 22 0.25 x2 0.10
 drawer: resistor 22 2 x1 1.50
 drawer: resistor 47 0.25 x2 0.10
+drawer: resistor 100 1 x4 0.30
 case: 250-340 mA, 12.0 V | battery 12.0 | lit LP1 250m 340m
 case: 250-340 mA, 13.8 V | battery 13.8 | lit LP1 250m 340m
-master-part: R resistor 22 2 W
-master: ..........
-master: .┌──R───┐.
-master: .B......X.
+hint-parts: Four 1 W resistors side by side share the heat between them, and cost less than one big one.
+master-part: R resistor 100 1 W
+master-part: S resistor 100 1 W
+master-part: T resistor 100 1 W
+master-part: U resistor 100 1 W
+master: ...┌R─┐...
+master: .┌─┼S─┼─┐.
+master: .B.├T─┤.X.
+master: .│.└U─┘.│.
+master: .│......│.
 master: .└──────┘.
-master: ..........
-master: ..........
 grid:
 ..........
 ..........
