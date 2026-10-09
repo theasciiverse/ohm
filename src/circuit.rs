@@ -20,6 +20,16 @@ pub enum Dir {
 impl Dir {
     pub const ALL: [Dir; 4] = [Dir::N, Dir::E, Dir::S, Dir::W];
 
+    /// A quarter turn clockwise.
+    pub fn cw(self) -> Dir {
+        match self {
+            Dir::N => Dir::E,
+            Dir::E => Dir::S,
+            Dir::S => Dir::W,
+            Dir::W => Dir::N,
+        }
+    }
+
     pub fn bit(self) -> u8 {
         1 << self as u8
     }
@@ -58,6 +68,11 @@ impl Colour {
         }
     }
 
+    /// Forward voltage at 10 mA, as the solver models it.
+    pub fn vf(self) -> f64 {
+        self.led().vf
+    }
+
     fn led(self) -> solver::Led {
         match self {
             Colour::Red => solver::Led::RED,
@@ -83,6 +98,38 @@ pub enum Kind {
     Capacitor { farads: f64 },
     /// A fixed point a job measures at; one pin.
     TestPoint,
+    /// A fast-acting fuse: carries its rating, opens well above it.
+    Fuse { amps: f64 },
+    /// A light-dependent resistor (a GL5528-like CdS cell) in light of `lux`.
+    Ldr { lux: f64 },
+    /// An NTC thermistor, 10 kΩ at 25 °C, B 3950, at `celsius`.
+    Ntc { celsius: f64 },
+    /// A potentiometer: `ohms` end to end, the wiper (third pin) `turn` of the way from pin
+    /// `a` (0) to pin `b` (1).
+    Pot { ohms: f64, turn: f64 },
+}
+
+/// A fuse's cold resistance (chosen: small next to anything it protects).
+pub const FUSE_OHMS: f64 = 0.1;
+/// A potentiometer's end resistance: the wiper never quite reaches zero.
+const POT_END: f64 = 1.0;
+
+/// The light levels an LDR cycles through when operated, and the temperatures for a thermistor.
+pub const LUX_STEPS: [f64; 5] = [0.0, 1.0, 10.0, 100.0, 1000.0];
+pub const CELSIUS_STEPS: [f64; 4] = [-18.0, 4.0, 20.0, 37.0];
+
+impl Kind {
+    /// An LDR's or thermistor's resistance as it stands, ohms.
+    pub fn sensor_ohms(&self) -> Option<f64> {
+        match *self {
+            // GL5528: 8 to 20 kΩ at 10 lux, gamma 0.7 (the log slope from 10 to 100 lux,
+            // carried on either side), at least 1 MΩ in the dark.
+            Kind::Ldr { lux } => Some(if lux <= 0.0 { 1e6 } else { (15e3 * (lux / 10.0).powf(-0.7)).min(1e6) }),
+            // The B equation: R = R25 exp(B (1/T - 1/T25)), temperatures in kelvin.
+            Kind::Ntc { celsius } => Some(10e3 * (3950.0 * (1.0 / (celsius + 273.15) - 1.0 / 298.15)).exp()),
+            _ => None,
+        }
+    }
 }
 
 impl Kind {
@@ -97,6 +144,10 @@ impl Kind {
             Kind::Led(_) => "LED",
             Kind::Capacitor { .. } => "C",
             Kind::TestPoint => "TP",
+            Kind::Fuse { .. } => "F",
+            Kind::Ldr { .. } => "LDR",
+            Kind::Ntc { .. } => "TH",
+            Kind::Pot { .. } => "RV",
         }
     }
 
@@ -105,7 +156,11 @@ impl Kind {
     }
 
     pub fn pins(&self) -> usize {
-        if *self == Kind::TestPoint { 1 } else { 2 }
+        match self {
+            Kind::TestPoint => 1,
+            Kind::Pot { .. } => 3,
+            _ => 2,
+        }
     }
 
     /// Human names for the pins, for hints.
@@ -115,6 +170,9 @@ impl Kind {
             (Kind::Battery { .. } | Kind::Supply { .. }, _) => "- terminal",
             (Kind::Led(_), 0) => "long leg (anode, +)",
             (Kind::Led(_), _) => "short leg (cathode, -)",
+            (Kind::Pot { .. }, 0) => "first end",
+            (Kind::Pot { .. }, 1) => "other end",
+            (Kind::Pot { .. }, _) => "wiper (middle leg)",
             (_, 0) => "first leg",
             _ => "second leg",
         }
@@ -137,7 +195,12 @@ pub struct Part {
 impl Part {
     /// The side each pin faces.
     pub fn pin_sides(&self) -> Vec<Dir> {
-        if self.kind.pins() == 1 { vec![self.facing] } else { vec![self.facing, self.facing.opposite()] }
+        match self.kind.pins() {
+            1 => vec![self.facing],
+            // A potentiometer's wiper is a quarter turn clockwise from pin `a`.
+            3 => vec![self.facing, self.facing.opposite(), self.facing.cw()],
+            _ => vec![self.facing, self.facing.opposite()],
+        }
     }
 }
 
@@ -510,6 +573,8 @@ pub struct Live {
     pub sim: Circuit,
     nodes: Vec<Node>,
     ids: Vec<Option<PartId>>,
+    /// A potentiometer's second half (wiper to `b`); its first half is in `ids`.
+    lower: Vec<Option<PartId>>,
 }
 
 impl Live {
@@ -519,7 +584,9 @@ impl Live {
         let mut sim = Circuit::new();
         let nodes: Vec<Node> = (0..net.nets).map(|n| if Some(n) == ground { GROUND } else { sim.node() }).collect();
         let mut ids = Vec::new();
+        let mut lower = Vec::new();
         for (i, part) in b.parts.iter().enumerate() {
+            lower.push(None);
             let pin = |k: usize| nodes[net.pin_net[i][k]];
             let id = match part.kind {
                 Kind::Resistor { ohms, watts } | Kind::Lamp { ohms, watts } => {
@@ -536,6 +603,15 @@ impl Live {
                 Kind::Led(c) => Some(sim.led(pin(0), pin(1), c.led())),
                 Kind::Capacitor { farads } => Some(sim.capacitor(pin(0), pin(1), farads)),
                 Kind::TestPoint => None,
+                Kind::Fuse { amps } => Some(sim.fuse(pin(0), pin(1), FUSE_OHMS, amps)),
+                // GL5528: 100 mW.
+                Kind::Ldr { .. } => Some(sim.resistor_rated(pin(0), pin(1), part.kind.sensor_ohms().unwrap(), 0.1)),
+                Kind::Ntc { .. } => Some(sim.resistor(pin(0), pin(1), part.kind.sensor_ohms().unwrap())),
+                Kind::Pot { ohms, turn } => {
+                    let turn = turn.clamp(0.0, 1.0);
+                    lower[i] = Some(sim.resistor(pin(2), pin(1), (ohms * (1.0 - turn)).max(POT_END)));
+                    Some(sim.resistor(pin(0), pin(2), (ohms * turn).max(POT_END)))
+                }
             };
             if let Some(id) = id
                 && part.burnt
@@ -544,7 +620,7 @@ impl Live {
             }
             ids.push(id);
         }
-        Live { net, sim, nodes, ids }
+        Live { net, sim, nodes, ids, lower }
     }
 
     /// Flips a switch or a button in the running circuit, without rebuilding it.
@@ -591,7 +667,15 @@ impl Live {
             if part.kind.pins() < 2 || r.burnt {
                 continue;
             }
-            let into_net = if part.kind.is_source() { [r.amps, -r.amps] } else { [-r.amps, r.amps] };
+            let into_net: Vec<f64> = if part.kind.is_source() {
+                vec![r.amps, -r.amps]
+            } else if let Some(low) = self.lower[i] {
+                // A potentiometer: in at one end, out at the other, the difference at the wiper.
+                let i2 = self.sim.current(low);
+                vec![-r.amps, i2, r.amps - i2]
+            } else {
+                vec![-r.amps, r.amps]
+            };
             for (k, &d) in part.pin_sides().iter().enumerate() {
                 if let Some(q) = b.neighbour(part.pos, d)
                     && let Some(c) = node(q, d.opposite())

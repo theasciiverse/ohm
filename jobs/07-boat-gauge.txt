@@ -1,0 +1,34 @@
+# A divider to scale a 12 V battery to a 0-5 V gauge: the test point wants about a third of the
+# battery. 4.7k over 2.2k (0.319) and 1k over 470 (0.320) both pass; 2.2k over 1k (0.3125) reads
+# just low on both batteries. The bigger pair draws a fifth of the current: the battery tick.
+name: Boat gauge
+customer: Mr Holm, the harbour
+fee: 50
+note: My boat's old gauge reads 0 to 5 V, but the battery is 12 V. Make the gauge show a third of the battery, and don't flatten it over the winter.
+battery: 60000
+book: dividers
+part: B battery 12 0.05 N
+part: T testpoint W
+drawer: resistor 470 0.25 x2 0.10
+drawer: resistor 1k 0.25 x2 0.10
+drawer: resistor 2k2 0.25 x2 0.10
+drawer: resistor 4k7 0.25 x1 0.10
+case: TP1 4.0-4.4 V, battery full | battery 12.6 | volts TP1 4.0 4.4
+case: TP1 3.6-4.0 V, battery low | battery 11.4 | volts TP1 3.6 4.0
+life: TP1 4.0-4.4 V, battery full
+hint-battery: The same ratio from bigger resistors draws less current: the gauge reads the same and the battery lasts.
+master-part: R resistor 4k7 0.25 W
+master-part: S resistor 2k2 0.25 N
+master: ..........
+master: .┌─R─┐....
+master: .B...├─T..
+master: .│...S....
+master: .└───┘....
+master: ..........
+grid:
+..........
+..........
+.B.....T..
+..........
+..........
+..........

@@ -1,0 +1,33 @@
+# The pot is the tank's float: its ends across the supply, its wiper the reading. The 12 V
+# battery needs a resistor above the pot to keep the gauge under 5 V: 15k gives 4.8 V full;
+# 10k gives 6 V (off the scale), 22k only 3.75 V. Wiring the pot as a plain variable resistor
+# leaves the reading stuck.
+name: Fuel gauge
+customer: Mr Holm, the harbour
+fee: 60
+note: The tank's float turns a knob (RV1): all the way back when the tank is full, all the way round when it's empty. My gauge (TP1) reads 0 to 5 V, on the same 12 V battery.
+battery: 0
+book: potentiometers, dividers
+part: B battery 12 0.05 N
+part: P pot 10k 0 N
+part: T testpoint W
+drawer: resistor 10k 0.25 x1 0.10
+drawer: resistor 15k 0.25 x1 0.10
+drawer: resistor 22k 0.25 x1 0.10
+case: tank full (RV1 at 0): TP1 4.0-5.0 V | battery 12 | set RV1 0 | volts TP1 4.0 5.0
+case: half full (RV1 at 0.5): TP1 2.0-2.6 V | battery 12 | set RV1 0.5 | volts TP1 2.0 2.6
+case: empty (RV1 at 1): TP1 under 0.3 V | battery 12 | set RV1 1 | volts TP1 0 0.3
+master-part: R resistor 15k 0.25 W
+master: ..........
+master: .┌─R─┐....
+master: .B...P─T..
+master: .│...│....
+master: .└───┘....
+master: ..........
+grid:
+..........
+..........
+.B...P.T..
+..........
+..........
+..........

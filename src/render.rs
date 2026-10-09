@@ -258,10 +258,55 @@ const TESTPOINT_V: Art = Art {
     f: ["  L  ", "  R  ", "     "],
     b: ["     ", "     ", "     "],
 };
+// Chapter 2. Letters: I fuse glass, Q fuse wire, Y the LDR's cream disc (its track R, the light
+// falling on it G), N the thermistor's bead, V a pot's body, X its knob (the glyph `*` becomes
+// the knob's pointer, turned with the wiper).
+const FUSE_H: Art = Art {
+    g: ["     ", "─▐═▌─", "     "],
+    f: ["     ", "LSQSL", "     "],
+    b: ["     ", " III ", "     "],
+};
+const FUSE_V: Art = Art {
+    g: ["  ▄  ", "  ║  ", "  ▀  "],
+    f: ["  S  ", "  Q  ", "  S  "],
+    b: ["  L  ", "  I  ", "  L  "],
+};
+const LDR_H: Art = Art {
+    g: [" ▗▄▖ ", "─▐~▌─", " ▝▀▘ "],
+    f: [" YYY ", "LYRYL", " YYY "],
+    b: ["GGGGG", "GYYYG", "GGGGG"],
+};
+const LDR_V: Art = Art {
+    g: [" ▗▄▖ ", " ▐~▌ ", " ▝▀▘ "],
+    f: [" YYY ", " YRY ", " YYY "],
+    b: ["GGLGG", "GYYYG", "GGLGG"],
+};
+const NTC_H: Art = Art {
+    g: ["     ", "──█──", "     "],
+    f: ["     ", "LLNLL", "     "],
+    b: ["     ", "     ", "     "],
+};
+const NTC_V: Art = Art {
+    g: ["  │  ", "  █  ", "  │  "],
+    f: ["  L  ", "  N  ", "  L  "],
+    b: ["     ", "     ", "     "],
+};
+// A pot faces pin `a` west (H) or north (V), its wiper a quarter turn clockwise: north (H) or
+// east (V). Facing east or south it is turned half round, not mirrored, so the wiper follows.
+const POT_H: Art = Art {
+    g: ["  │  ", "─▐*▌─", "     "],
+    f: ["  L  ", "LVXVL", "     "],
+    b: ["     ", " VVV ", "     "],
+};
+const POT_V: Art = Art {
+    g: ["  │  ", " ▐*▌─", "  │  "],
+    f: ["  L  ", " VXVL", "  L  "],
+    b: ["     ", " VVV ", "     "],
+};
 const SUPPLY: Art = Art {
     g: [" ▄▄▄ ", "─+ -─", " ▀▀▀ "],
-    f: [" KKK ", "LR WL", " KKK "],
-    b: ["     ", " KKK ", "     "],
+    f: [" HHH ", "LR KL", " HHH "],
+    b: ["     ", " HHH ", "     "],
 };
 
 fn mirror_h(g: char) -> char {
@@ -276,6 +321,8 @@ fn mirror_h(g: char) -> char {
         '╺' => '╸',
         '(' => ')',
         ')' => '(',
+        '╱' => '╲',
+        '╲' => '╱',
         _ => g,
     }
 }
@@ -290,6 +337,8 @@ fn mirror_v(g: char) -> char {
         '▘' => '▖',
         '╹' => '╻',
         '╻' => '╹',
+        '╱' => '╲',
+        '╲' => '╱',
         _ => g,
     }
 }
@@ -372,6 +421,14 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
         (Kind::TestPoint, true) => &TESTPOINT_H,
         (Kind::TestPoint, false) => &TESTPOINT_V,
         (Kind::Supply { .. }, _) => &SUPPLY,
+        (Kind::Fuse { .. }, true) => &FUSE_H,
+        (Kind::Fuse { .. }, false) => &FUSE_V,
+        (Kind::Ldr { .. }, true) => &LDR_H,
+        (Kind::Ldr { .. }, false) => &LDR_V,
+        (Kind::Ntc { .. }, true) => &NTC_H,
+        (Kind::Ntc { .. }, false) => &NTC_V,
+        (Kind::Pot { .. }, true) => &POT_H,
+        (Kind::Pot { .. }, false) => &POT_V,
     };
     let bands = match kind {
         Kind::Resistor { ohms, .. } => resistor_bands(ohms),
@@ -395,7 +452,17 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
         }
         Kind::Lamp { .. } => (mix((120, 130, 140), (255, 230, 150), look.glow), mix(bg, (255, 220, 120), 0.3 * look.glow)),
         Kind::Button { held } => (if held { (120, 20, 16) } else { (220, 40, 30) }, bg),
+        // Light falls round an LDR as bright as it is (a log scale, up to daylight).
+        Kind::Ldr { lux } => ((0, 0, 0), mix(bg, (255, 240, 190), 0.3 * ((lux + 1.0).log10() / 3.0).clamp(0.0, 1.0))),
+        // A thermistor's bead from freezer blue to warm-hand red.
+        Kind::Ntc { celsius } => (mix((60, 100, 210), (220, 80, 40), ((celsius + 18.0) / 55.0).clamp(0.0, 1.0)), bg),
         _ => ((0, 0, 0), bg),
+    };
+    // A pot's knob points round with its turn.
+    let pointer = match kind {
+        Kind::Pot { turn, .. } if turn < 1.0 / 3.0 => '╲',
+        Kind::Pot { turn, .. } if turn < 2.0 / 3.0 => '│',
+        _ => '╱',
     };
     let colour = |letter: char| -> Option<Rgb> {
         Some(match letter {
@@ -417,11 +484,21 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
             'O' => (210, 120, 40),
             'E' => (40, 70, 150),
             'M' => (190, 200, 220),
+            'I' => (60, 72, 78),
+            'Q' => if look.burnt { (30, 26, 24) } else { (210, 210, 200) },
+            'Y' => (214, 196, 160),
+            'N' => warm(part_rgb),
+            'V' => (40, 80, 170),
+            'X' => (236, 236, 230),
+            // A bench supply's light grey case, as most are.
+            'H' => (150, 156, 162),
             _ => return None,
         })
     };
-    let flip_h = facing == Dir::E;
-    let flip_v = facing == Dir::S;
+    // Mirrored to face east or south; a pot is turned half round instead.
+    let pot = matches!(kind, Kind::Pot { .. });
+    let flip_h = facing == Dir::E || pot && facing == Dir::S;
+    let flip_v = facing == Dir::S || pot && facing == Dir::E;
     for row in 0..3 {
         let src_row = if flip_v { 2 - row } else { row };
         let g: Vec<char> = art.g[src_row].chars().collect();
@@ -429,7 +506,7 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
         let b: Vec<char> = art.b[src_row].chars().collect();
         for col in 0..5 {
             let src = if flip_h { 4 - col } else { col };
-            let mut ch = g[src];
+            let mut ch = if g[src] == '*' { pointer } else { g[src] };
             if flip_h {
                 ch = mirror_h(ch);
             }
@@ -748,7 +825,8 @@ fn scope(buf: &mut Buffer, r: Rect, samples: &[f64]) {
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut line = String::new();
-    for word in text.split_whitespace() {
+    // A no-break space (U+00A0) holds a value to its unit: "2.2 kΩ" never breaks.
+    for word in text.split(|c: char| c.is_whitespace() && c != '\u{a0}').filter(|w| !w.is_empty()) {
         if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
             lines.push(std::mem::take(&mut line));
         }
@@ -783,6 +861,55 @@ pub struct Layout {
     pub slots: Vec<Rect>,
     /// What an overlay covers: the board and the drawers.
     pub overlay: Rect,
+    /// The panel grown along its strip, if any. A panel folded to make room for it is one
+    /// row high: just its title.
+    pub grown: Option<Grow>,
+}
+
+/// A panel that grows in place when its title is clicked, borrowing from the neighbours along
+/// its strip, which fold down to their title line. The board never moves. The drawers don't
+/// grow: their title opens the drawer overlay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grow {
+    /// Down the whole left column; the multimeter folds.
+    Inbox,
+    /// Up the whole left column; the inbox folds.
+    Meter,
+    /// Across the whole bottom row; the multimeter and datasheet fold.
+    Scope,
+    /// Up the whole right column; the drawers fold.
+    Card,
+}
+
+impl Grow {
+    pub const ALL: [Grow; 4] = [Grow::Inbox, Grow::Meter, Grow::Scope, Grow::Card];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Grow::Inbox => "INBOX",
+            Grow::Meter => "MULTIMETER",
+            Grow::Scope => "SCOPE",
+            Grow::Card => "DATASHEET",
+        }
+    }
+
+    pub fn key(self) -> char {
+        match self {
+            Grow::Inbox => 'i',
+            Grow::Meter => 'v',
+            Grow::Scope => 'o',
+            Grow::Card => 'g',
+        }
+    }
+
+    fn rect(self, l: &Layout) -> Rect {
+        match self {
+            Grow::Inbox => l.inbox,
+            Grow::Meter => l.meter,
+            Grow::Scope => l.scope,
+            Grow::Card => l.card,
+        }
+    }
 }
 
 /// The smallest terminal the desk fits: 100x30, the catalog's recording size.
@@ -828,7 +955,7 @@ const VIEW_MIN: (u16, u16) = (10, 6);
 /// window onto the workbench, showing as many tiles as fit around `centre`; the panels around it
 /// take the rest, as the player has dragged them or, left alone, side columns up to 34 wide and
 /// a bottom row about a third of the height.
-pub fn layout(area: Rect, board: &Board, slots: usize, splits: Splits, centre: (usize, usize)) -> Option<Layout> {
+pub fn layout(area: Rect, board: &Board, slots: usize, splits: Splits, centre: (usize, usize), grown: Option<Grow>) -> Option<Layout> {
     if area.width < MIN_W || area.height < MIN_H {
         return None;
     }
@@ -843,12 +970,37 @@ pub fn layout(area: Rect, board: &Board, slots: usize, splits: Splits, centre: (
     let (x0, y0) = (area.x, area.y + 1);
     let bw = area.width - left - right;
     let bh = area.height - 2 - bottom_h;
-    let inbox = Rect::new(x0, y0, left, bh);
+    let mut inbox = Rect::new(x0, y0, left, bh);
     let br = Rect::new(x0 + left, y0, bw, bh);
-    let drawers = Rect::new(br.x + bw, y0, right, bh);
-    let meter = Rect::new(x0, y0 + bh, left, bottom_h);
-    let scope = Rect::new(br.x, y0 + bh, bw, bottom_h);
-    let card = Rect::new(drawers.x, y0 + bh, right, bottom_h);
+    let mut drawers = Rect::new(br.x + bw, y0, right, bh);
+    let mut meter = Rect::new(x0, y0 + bh, left, bottom_h);
+    let mut scope = Rect::new(br.x, y0 + bh, bw, bottom_h);
+    let mut card = Rect::new(drawers.x, y0 + bh, right, bottom_h);
+    // A grown panel takes its whole strip; the neighbours it borrows from keep one row, for
+    // their title. The board keeps its place and size.
+    let tall = bh + bottom_h;
+    match grown {
+        Some(Grow::Inbox) => {
+            inbox.height = tall - 1;
+            meter = Rect::new(x0, y0 + tall - 1, left, 1);
+        }
+        Some(Grow::Meter) => {
+            inbox.height = 1;
+            meter = Rect::new(x0, y0 + 1, left, tall - 1);
+        }
+        Some(Grow::Scope) => {
+            inbox.height = bh - 1;
+            drawers.height = bh - 1;
+            meter = Rect::new(x0, y0 + bh - 1, left, 1);
+            card = Rect::new(drawers.x, y0 + bh - 1, right, 1);
+            scope = Rect::new(x0, y0 + bh, area.width, bottom_h);
+        }
+        Some(Grow::Card) => {
+            drawers.height = 1;
+            card = Rect::new(drawers.x, y0 + 1, right, tall - 1);
+        }
+        None => {}
+    }
     let mut buttons = Vec::new();
     let mut bx = br.x + 2;
     for (label, act) in BUTTONS {
@@ -856,7 +1008,10 @@ pub fn layout(area: Rect, board: &Board, slots: usize, splits: Splits, centre: (
         buttons.push((Rect::new(bx, br.y + br.height - 1, w, 1), act));
         bx += w + 1;
     }
-    let slots = (0..slots).map(|i| Rect::new(drawers.x + 1, drawers.y + 1 + i as u16 * 2, drawers.width - 2, 2)).collect();
+    let slots = (0..slots)
+        .map(|i| Rect::new(drawers.x + 1, drawers.y + 1 + i as u16 * 2, drawers.width - 2, 2))
+        .take_while(|r| r.y + r.height < drawers.y + drawers.height)
+        .collect();
     let overlay = Rect::new(br.x, br.y, drawers.x + drawers.width - br.x, bh);
     let inner = Rect::new(br.x + 1, br.y + 1, bw - 2, bh - 2);
     // Along each axis: if the whole board fits, centre it; if not, show the tiles round `centre`.
@@ -871,7 +1026,7 @@ pub fn layout(area: Rect, board: &Board, slots: usize, splits: Splits, centre: (
     };
     let (vx, ox) = axis(inner.width, TILE_W, board.w, centre.0, inner.x);
     let (vy, oy) = axis(inner.height, TILE_H, board.h, centre.1, inner.y);
-    Some(Layout { inbox, board: br, inner, view: (vx, vy), origin: (ox, oy), drawers, meter, scope, card, buttons, slots, overlay })
+    Some(Layout { inbox, board: br, inner, view: (vx, vy), origin: (ox, oy), drawers, meter, scope, card, buttons, slots, overlay, grown })
 }
 
 /// Whether the inbox lists its jobs on two lines (the open one, and a way to the others) to
@@ -881,15 +1036,40 @@ pub fn inbox_compact(l: &Layout, arrived: usize) -> bool {
     l.inbox.height < arrived as u16 + 2 + 3 + 14
 }
 
-/// The Notebook's label in the inbox's bottom border.
+/// The binder's label in the datasheet's bottom border; folded, at the right of its title line.
+pub fn binder_button(l: &Layout) -> Rect {
+    if l.card.height == 1 {
+        return Rect::new(l.card.x + l.card.width - 10, l.card.y, 8, 1);
+    }
+    Rect::new(l.card.x + 2, l.card.y + l.card.height - 1, 8, 1)
+}
+
+/// The Notebook's label in the inbox's bottom border; folded, at the right of its title line.
 pub fn notebook_button(l: &Layout) -> Rect {
+    if l.inbox.height == 1 {
+        return Rect::new(l.inbox.x + l.inbox.width - 12, l.inbox.y, 10, 1);
+    }
     Rect::new(l.inbox.x + 2, l.inbox.y + l.inbox.height - 1, 10, 1)
 }
 
+/// The title label of a panel that grows, as drawn: " SCOPE + ".
+fn grow_label(l: &Layout, g: Grow) -> String {
+    format!("{} {}", g.title(), if l.grown == Some(g) { "-" } else { "+" })
+}
+
+/// The panel whose title is under a screen position, folded or not.
+pub fn title_at(l: &Layout, x: u16, y: u16) -> Option<Grow> {
+    Grow::ALL.into_iter().find(|&g| {
+        let r = g.rect(l);
+        y == r.y && x >= r.x + 2 && x < r.x + 4 + grow_label(l, g).len() as u16
+    })
+}
+
 /// The panel edge under a screen position: the seam between two columns, or between the rows.
+/// While a panel is grown the edges rest.
 pub fn edge_at(l: &Layout, x: u16, y: u16) -> Option<Edge> {
     let bottom = l.meter.y + l.meter.height;
-    if y < l.board.y || y >= bottom || button_at(l, x, y).is_some() {
+    if l.grown.is_some() || y < l.board.y || y >= bottom || button_at(l, x, y).is_some() {
         return None;
     }
     if x + 1 == l.board.x || x == l.board.x {
@@ -960,6 +1140,8 @@ pub struct Meter {
     pub unit: &'static str,
     pub what: String,
     pub second: String,
+    /// Further readings, label and value, shown below the display when the meter has room.
+    pub more: Vec<(String, String)>,
 }
 
 /// A part's card, as in the binder.
@@ -971,8 +1153,13 @@ pub struct Card {
     pub side: [String; 3],
     /// What it is doing right now.
     pub now: String,
-    /// One rule: a keyword and its reminder.
-    pub rule: (String, String),
+    /// Its rules, each a keyword and its reminder; the first always shows, the rest as room
+    /// allows.
+    pub rules: Vec<(String, String)>,
+    /// Live readings, for a tall card.
+    pub readings: Vec<String>,
+    /// Why the part behaves as it does, in a line or two of plain words.
+    pub why: String,
 }
 
 /// What the desk shows besides the board.
@@ -1017,13 +1204,84 @@ pub fn desk(buf: &mut Buffer, area: Rect, l: &Layout, board: &BoardView, d: &Des
     text(buf, x0 + 16, y0, &format!("· {}", d.title), TEXT, DESK);
     let ledger = format!("ledger {}", d.ledger);
     text(buf, x0 + area.width - ledger.len() as u16 - 1, y0, &ledger, AMBER, DESK);
+    let hb = help_button(area, &ledger);
+    bold(buf, hb.x, hb.y, " F1 help ", DESK, FRAME);
 
-    // Inbox: the jobs, then the open job's note and spec on paper; the Notebook in its border.
+    if l.inbox.height == 1 {
+        folded(buf, l.inbox, &grow_label(l, Grow::Inbox));
+        let nb = notebook_button(l);
+        bold(buf, nb.x, nb.y, " NOTEBOOK ", DESK, FRAME);
+    } else {
+        inbox_panel(buf, l, d);
+    }
+
+    // The board panel is a window onto one big perfboard: a bigger panel shows more of it,
+    // never bigger tiles.
+    frame(buf, l.board, "BOARD", "", DESK);
+    fill(buf, l.inner, DESK);
+    board.draw_view(buf, l);
+    for ((r, act), (label, _)) in l.buttons.iter().zip(BUTTONS) {
+        let lit = *act == Act::Eraser && board.eraser;
+        bold(buf, r.x, r.y, &format!(" {label} "), DESK, if lit { AMBER } else { FRAME });
+    }
+    let status = format!(" {} ", d.status);
+    text(buf, l.board.x + l.board.width - status.chars().count() as u16 - 2, l.board.y, &status, DIM, DESK);
+
+    if l.drawers.height == 1 {
+        folded(buf, l.drawers, "DRAWERS +");
+    } else {
+        drawers_panel(buf, l, d);
+    }
+
+    if l.meter.height == 1 {
+        folded(buf, l.meter, &grow_label(l, Grow::Meter));
+    } else {
+        meter_panel(buf, l, d);
+    }
+    scope_panel(buf, l, d);
+    if l.card.height == 1 {
+        folded(buf, l.card, &grow_label(l, Grow::Card));
+    } else {
+        card_panel(buf, l, d);
+    }
+    let bb = binder_button(l);
+    bold(buf, bb.x, bb.y, " BINDER ", DESK, FRAME);
+
+    // A panel edge under the mouse, or being dragged, lights up.
+    if let Some(edge) = d.edge {
+        let (top, bottom) = (l.board.y, l.meter.y + l.meter.height);
+        let cells: Vec<(u16, u16)> = match edge {
+            Edge::Left => (top..bottom).flat_map(|y| [(l.board.x - 1, y), (l.board.x, y)]).collect(),
+            Edge::Right => (top..bottom).flat_map(|y| [(l.drawers.x - 1, y), (l.drawers.x, y)]).collect(),
+            Edge::Bottom => (l.inbox.x..l.card.x + l.card.width).flat_map(|x| [(x, l.meter.y - 1), (x, l.meter.y)]).collect(),
+        };
+        for (x, y) in cells {
+            if let Some(cell) = buf.cell_mut((x, y))
+                && matches!(cell.symbol(), "│" | "─" | "╭" | "╮" | "╰" | "╯")
+            {
+                cell.set_fg(c(AMBER));
+            }
+        }
+    }
+
+    // Hint row, or a message.
+    let bottom = y0 + area.height - 1;
+    match &d.message {
+        Some(msg) => bold(buf, x0 + 1, bottom, msg, AMBER, DESK),
+        None => text(buf, x0 + 1, bottom, &d.hints, DIM, DESK),
+    }
+}
+
+/// The inbox: the jobs, then the open job's note and spec on paper; the Notebook in its border.
+fn inbox_panel(buf: &mut Buffer, l: &Layout, d: &DeskView) {
     let inbox = l.inbox;
-    frame(buf, inbox, "INBOX", "", DESK);
+    frame(buf, inbox, &grow_label(l, Grow::Inbox), "", DESK);
     let nb = notebook_button(l);
     bold(buf, nb.x, nb.y, " NOTEBOOK ", DESK, FRAME);
-    let rows = if inbox_compact(l, d.inbox.len()) {
+    let rows = if d.inbox.is_empty() {
+        // No jobs listed (the sandbox): the paper takes the whole panel.
+        0
+    } else if inbox_compact(l, d.inbox.len()) {
         // Short of room: the open job, and a line to step to the others.
         let open = d.inbox.iter().find(|j| j.1).map(|j| j.0.as_str()).unwrap_or("");
         text(buf, inbox.x + 2, inbox.y + 1, &format!("> {open}"), AMBER, DESK);
@@ -1050,7 +1308,7 @@ pub fn desk(buf: &mut Buffer, area: Rect, l: &Layout, board: &BoardView, d: &Des
         }
         rows
     };
-    let top = 2 + rows;
+    let top = if rows == 0 { 1 } else { 2 + rows };
     let paper = Rect::new(inbox.x + 1, inbox.y + top, inbox.width - 2, inbox.height.saturating_sub(top + 1));
     fill(buf, paper, PAPER);
     let pw = paper.width as usize - 2;
@@ -1067,7 +1325,7 @@ pub fn desk(buf: &mut Buffer, area: Rect, l: &Layout, board: &BoardView, d: &Des
         let line = if cut { "... (drag to see)".chars().take(pw).collect() } else { line.clone() };
         text(buf, paper.x + 1, paper.y + 2 + k as u16, &line, if cut { DIM_INK } else { INK }, PAPER);
     }
-    if spec_y > paper.y {
+    if spec_y > paper.y && !d.spec.is_empty() {
         text(buf, paper.x + 1, spec_y, checkbox(d.works), if d.works { TICK_INK } else { DIM_INK }, PAPER);
         bold(buf, paper.x + 5, spec_y, "Spec", INK, PAPER);
     }
@@ -1104,20 +1362,10 @@ pub fn desk(buf: &mut Buffer, area: Rect, l: &Layout, board: &BoardView, d: &Des
             text(buf, paper.x + 5, ly, &part, INK, PAPER);
         }
     }
+}
 
-    // The board panel is a window onto one big perfboard: a bigger panel shows more of it,
-    // never bigger tiles.
-    frame(buf, l.board, "BOARD", "", DESK);
-    fill(buf, l.inner, DESK);
-    board.draw_view(buf, l);
-    for ((r, act), (label, _)) in l.buttons.iter().zip(BUTTONS) {
-        let lit = *act == Act::Eraser && board.eraser;
-        bold(buf, r.x, r.y, &format!(" {label} "), DESK, if lit { AMBER } else { FRAME });
-    }
-    let status = format!(" {} ", d.status);
-    text(buf, l.board.x + l.board.width - status.chars().count() as u16 - 2, l.board.y, &status, DIM, DESK);
-
-    // Parts drawers.
+/// The parts drawers, one slot per part.
+fn drawers_panel(buf: &mut Buffer, l: &Layout, d: &DeskView) {
     let dr = l.drawers;
     frame(buf, dr, "DRAWERS +", "", DESK);
     for (i, (slot, r)) in d.slots.iter().zip(&l.slots).enumerate() {
@@ -1131,10 +1379,12 @@ pub fn desk(buf: &mut Buffer, area: Rect, l: &Layout, board: &BoardView, d: &Des
     if d.copper_mode {
         text(buf, dr.x + 2, dr.y + dr.height - 1, " laying copper ", AMBER, DESK);
     }
+}
 
-    // Multimeter.
+/// The multimeter: the reading in big digits, and below them as many more as there is room for.
+fn meter_panel(buf: &mut Buffer, l: &Layout, d: &DeskView) {
     let mm = l.meter;
-    frame(buf, mm, "MULTIMETER", "reads the cursor", DESK);
+    frame(buf, mm, &grow_label(l, Grow::Meter), "reads the cursor", DESK);
     let lcd = Rect::new(mm.x + 2, mm.y + 1, mm.width - 4, 5);
     fill(buf, lcd, LCD);
     let m = &d.meter;
@@ -1143,9 +1393,22 @@ pub fn desk(buf: &mut Buffer, area: Rect, l: &Layout, board: &BoardView, d: &Des
     bold(buf, lcd.x + 2 + w, lcd.y + 2, &unit, AMBER, LCD);
     text(buf, lcd.x + 1, lcd.y + 3, &m.what, DIM, LCD);
     text(buf, lcd.x + 1, lcd.y + 4, &m.second, TEXT, LCD);
+    let bottom = mm.y + mm.height - 1;
+    let w = mm.width.saturating_sub(4) as usize;
+    for (k, (label, value)) in m.more.iter().enumerate() {
+        let y = lcd.y + 6 + k as u16;
+        if y >= bottom {
+            break;
+        }
+        text(buf, mm.x + 2, y, label, DIM, DESK);
+        let v: String = value.chars().take(w.saturating_sub(label.chars().count() + 1)).collect();
+        text(buf, mm.x + 2 + w as u16 - v.chars().count() as u16, y, &v, TEXT, DESK);
+    }
+}
 
-    // Scope.
-    frame(buf, l.scope, "SCOPE", &d.scope_label, DESK);
+/// The scope: a bigger panel shows more history across, and its numbers below the trace.
+fn scope_panel(buf: &mut Buffer, l: &Layout, d: &DeskView) {
+    frame(buf, l.scope, &grow_label(l, Grow::Scope), &d.scope_label, DESK);
     let sr = l.scope;
     // The trace keeps its height at any size: a bigger scope shows more history across, and
     // below the trace, its numbers.
@@ -1168,48 +1431,348 @@ pub fn desk(buf: &mut Buffer, area: Rect, l: &Layout, board: &BoardView, d: &Des
         );
         text(buf, sr.x + 2, sr.y + 2 + plot_h, &line.chars().take(sr.width as usize - 4).collect::<String>(), TEXT, DESK);
     }
+}
 
-    // The card of the part under the cursor.
+/// The datasheet card of the part under the cursor; a taller one shows every rule, the live
+/// readings and why the part behaves as it does.
+fn card_panel(buf: &mut Buffer, l: &Layout, d: &DeskView) {
     let cr = l.card;
-    frame(buf, cr, "DATASHEET", "", DESK);
+    frame(buf, cr, &grow_label(l, Grow::Card), "", DESK);
     if let Some(card) = &d.card {
-        bold(buf, cr.x + 2, cr.y + 1, &card.name, PAPER, DESK);
+        let room = (cr.width as usize).saturating_sub(card.price.chars().count() + 5);
+        bold(buf, cr.x + 2, cr.y + 1, &card.name.chars().take(room).collect::<String>(), PAPER, DESK);
         text(buf, cr.x + cr.width - card.price.chars().count() as u16 - 2, cr.y + 1, &card.price, AMBER, DESK);
         draw_part(buf, cr.x + 1, cr.y + 2, card.kind, Dir::W, Look::default(), DESK);
         for (i, line) in card.side.iter().enumerate() {
             text(buf, cr.x + 7, cr.y + 2 + i as u16, line, TEXT, DESK);
         }
         text(buf, cr.x + 2, cr.y + 5, &card.now, GOOD, DESK);
-        bold(buf, cr.x + 2, cr.y + 6, &card.rule.0, TEXT, DESK);
-        text(buf, cr.x + 3 + card.rule.0.chars().count() as u16, cr.y + 6, &card.rule.1, DIM, DESK);
+        // Below the picture, as much as fits: the rules, then (on a tall card) the live
+        // readings and why it behaves so.
+        let bottom = cr.y + cr.height - 1;
+        let w = cr.width.saturating_sub(4) as usize;
+        let mut y = cr.y + 6;
+        for (key, reminder) in &card.rules {
+            let lines = wrap(reminder, w.saturating_sub(2));
+            let one_line = key.chars().count() + 1 + reminder.chars().count() <= w;
+            if y + if one_line { 0 } else { lines.len() as u16 } >= bottom {
+                break;
+            }
+            bold(buf, cr.x + 2, y, key, TEXT, DESK);
+            if one_line {
+                text(buf, cr.x + 3 + key.chars().count() as u16, y, reminder, DIM, DESK);
+                y += 1;
+            } else {
+                for line in lines {
+                    y += 1;
+                    text(buf, cr.x + 4, y, &line, DIM, DESK);
+                }
+                y += 1;
+            }
+        }
+        // Each block shows whole or not at all, after a blank row.
+        for (lines, col) in [(card.readings.clone(), TEXT), (wrap(&card.why, w), PAPER)] {
+            if lines.is_empty() || y + lines.len() as u16 >= bottom {
+                continue;
+            }
+            for line in &lines {
+                y += 1;
+                text(buf, cr.x + 2, y, &line.chars().take(w).collect::<String>(), col, DESK);
+            }
+            y += 1;
+        }
     } else {
         text(buf, cr.x + 2, cr.y + 2, "Point at a part", DIM, DESK);
         text(buf, cr.x + 2, cr.y + 3, "to read its card.", DIM, DESK);
     }
+}
 
-    // A panel edge under the mouse, or being dragged, lights up.
-    if let Some(edge) = d.edge {
-        let (top, bottom) = (l.board.y, l.meter.y + l.meter.height);
-        let cells: Vec<(u16, u16)> = match edge {
-            Edge::Left => (top..bottom).flat_map(|y| [(l.board.x - 1, y), (l.board.x, y)]).collect(),
-            Edge::Right => (top..bottom).flat_map(|y| [(l.drawers.x - 1, y), (l.drawers.x, y)]).collect(),
-            Edge::Bottom => (l.inbox.x..l.card.x + l.card.width).flat_map(|x| [(x, l.meter.y - 1), (x, l.meter.y)]).collect(),
+/// A panel folded to its title line, to make room for a grown neighbour; its title stays
+/// clickable.
+fn folded(buf: &mut Buffer, r: Rect, title: &str) {
+    for x in r.x..r.x + r.width {
+        put(buf, x, r.y, "─", FRAME, DESK);
+    }
+    bold(buf, r.x + 2, r.y, &format!(" {title} "), AMBER, DESK);
+}
+
+// ---------------------------------------------------------------- the binder
+
+/// One card in the binder: a kind of part.
+pub struct BinderEntry {
+    pub name: String,
+    pub collected: bool,
+    /// The part as drawn on the card.
+    pub kind: Kind,
+    /// Where it was first met.
+    pub met: String,
+    /// The values the shop has, as one line.
+    pub values: String,
+    pub rules: Vec<(String, String)>,
+    pub why: String,
+    pub flavour: String,
+}
+
+/// The card binder: every kind of part as a card, collected as jobs bring them in (or the
+/// sandbox does), with its rules, why it behaves so and the master's word on it.
+pub fn binder(buf: &mut Buffer, l: &Layout, cards: &[BinderEntry], sel: usize, scroll: usize) {
+    let o = l.overlay;
+    let got = cards.iter().filter(|c| c.collected).count();
+    frame(buf, o, &format!("THE CARD BINDER · {got} of {}", cards.len()), "arrows or click a card · wheel scrolls · b or Esc closes", DESK);
+    let bl = book_layout(l);
+    for (i, card) in cards.iter().enumerate() {
+        if i as u16 >= bl.list.height {
+            break;
+        }
+        let (fg, bg) = match (i == sel, card.collected) {
+            (true, _) => (DESK, AMBER),
+            (false, true) => (TEXT, DESK),
+            (false, false) => (DIM, DESK),
         };
-        for (x, y) in cells {
-            if let Some(cell) = buf.cell_mut((x, y))
-                && matches!(cell.symbol(), "│" | "─" | "╭" | "╮" | "╰" | "╯")
-            {
-                cell.set_fg(c(AMBER));
-            }
+        let label = if card.collected { card.name.clone() } else { "(not met yet)".to_string() };
+        text(buf, bl.list.x, bl.list.y + i as u16, &format!("{:<w$}", label, w = bl.list.width as usize), fg, bg);
+    }
+    let Some(card) = cards.get(sel) else { return };
+    let p = bl.page;
+    let w = p.width as usize;
+    if !card.collected {
+        bold(buf, p.x, p.y, &card.name, DIM, DESK);
+        for (k, line) in wrap("Not met yet. A later job brings it, or put one on your sandbox board to collect its card.", w).iter().enumerate() {
+            text(buf, p.x, p.y + 2 + k as u16, line, DIM, DESK);
+        }
+        return;
+    }
+    // The card as rows (indent, text, colour, bold), scrolled as one; the part's picture sits
+    // beside rows `art` to `art + 2`.
+    let mut rows: Vec<(u16, String, Rgb, bool)> = vec![(0, card.name.clone(), AMBER, true)];
+    for line in wrap(&format!("\"{}\"", card.flavour), w) {
+        rows.push((0, line, DIM, false));
+    }
+    rows.push((0, String::new(), TEXT, false));
+    let art = rows.len();
+    let side = w.saturating_sub(7);
+    let mut beside: Vec<(String, Rgb)> = wrap(&card.met, side).into_iter().map(|l| (l, DIM)).collect();
+    if !card.values.is_empty() {
+        beside.extend(wrap(&format!("In the shop: {}", card.values), side).into_iter().map(|l| (l, TEXT)));
+    }
+    while beside.len() < 3 {
+        beside.push((String::new(), TEXT));
+    }
+    rows.extend(beside.into_iter().map(|(l, c)| (7, l, c, false)));
+    rows.push((0, String::new(), TEXT, false));
+    for (key, reminder) in &card.rules {
+        if key.chars().count() + 2 + reminder.chars().count() <= w {
+            rows.push((0, format!("{key}\u{0}{reminder}"), TEXT, true));
+        } else {
+            rows.push((0, key.clone(), TEXT, true));
+            rows.extend(wrap(reminder, w.saturating_sub(2)).into_iter().map(|l| (2, l, DIM, false)));
         }
     }
-
-    // Hint row, or a message.
-    let bottom = y0 + area.height - 1;
-    match &d.message {
-        Some(msg) => bold(buf, x0 + 1, bottom, msg, AMBER, DESK),
-        None => text(buf, x0 + 1, bottom, &d.hints, DIM, DESK),
+    rows.push((0, String::new(), TEXT, false));
+    rows.extend(wrap(&card.why, w).into_iter().map(|l| (0, l, PAPER, false)));
+    let room = p.height as usize;
+    let scroll = scroll.min(rows.len().saturating_sub(room));
+    let more = rows.len() > scroll + room;
+    let shown = if more { room - 1 } else { room };
+    for (k, (indent, s, fg, strong)) in rows.iter().skip(scroll).take(shown).enumerate() {
+        let y = p.y + k as u16;
+        // A rule on one line: its keyword bold, then the reminder dim.
+        if let Some((key, reminder)) = s.split_once('\u{0}') {
+            bold(buf, p.x, y, key, *fg, DESK);
+            text(buf, p.x + key.chars().count() as u16 + 2, y, reminder, DIM, DESK);
+        } else if *strong {
+            bold(buf, p.x + indent, y, s, *fg, DESK);
+        } else {
+            text(buf, p.x + indent, y, s, *fg, DESK);
+        }
     }
+    if art >= scroll && art + 3 <= scroll + shown {
+        draw_part(buf, p.x, p.y + (art - scroll) as u16, card.kind, Dir::W, Look { glow: 1.0, ..Look::default() }, DESK);
+    }
+    if more {
+        text(buf, p.x, p.y + shown as u16, "more below: scroll down", AMBER, DESK);
+    } else if scroll > 0 {
+        text(buf, p.x + w as u16 - 12, p.y, "scroll up ^", DIM, DESK);
+    }
+}
+
+// ---------------------------------------------------------------- help
+
+/// The help page, F1 or `?` anywhere: `help.txt`, with `# Heading` lines, `keys :: what they do`
+/// rows and paragraphs separated by blank lines.
+const HELP: &str = include_str!("../help.txt");
+/// Every help column is this wide at any terminal size; a bigger one shows more columns.
+const HELP_COL: usize = 46;
+const HELP_KEYS: usize = 15;
+
+enum HelpLine {
+    Heading(String),
+    /// Keys (on the first line of a row only) and a line of what they do.
+    Key(String, String),
+    Text(String),
+    Blank,
+}
+
+fn help_lines() -> Vec<HelpLine> {
+    let mut out = Vec::new();
+    let mut para = String::new();
+    let flush = |para: &mut String, out: &mut Vec<HelpLine>| {
+        if !para.is_empty() {
+            out.extend(wrap(para, HELP_COL).into_iter().map(HelpLine::Text));
+            para.clear();
+        }
+    };
+    for line in HELP.lines() {
+        let line = line.trim_end();
+        if let Some(h) = line.strip_prefix("# ") {
+            flush(&mut para, &mut out);
+            if !matches!(out.last(), None | Some(HelpLine::Blank)) {
+                out.push(HelpLine::Blank);
+            }
+            out.push(HelpLine::Heading(h.to_uppercase()));
+        } else if let Some((keys, what)) = line.split_once(" :: ") {
+            flush(&mut para, &mut out);
+            // Keys too long for their column get a line of their own.
+            if keys.chars().count() > HELP_KEYS {
+                out.push(HelpLine::Key(keys.into(), String::new()));
+            }
+            for (k, part) in wrap(what, HELP_COL - HELP_KEYS - 1).into_iter().enumerate() {
+                let first = k == 0 && keys.chars().count() <= HELP_KEYS;
+                out.push(HelpLine::Key(if first { keys.into() } else { String::new() }, part));
+            }
+        } else if line.is_empty() {
+            flush(&mut para, &mut out);
+            if !matches!(out.last(), None | Some(HelpLine::Blank | HelpLine::Heading(_))) {
+                out.push(HelpLine::Blank);
+            }
+        } else {
+            if !para.is_empty() {
+                para.push(' ');
+            }
+            para.push_str(line);
+        }
+    }
+    flush(&mut para, &mut out);
+    out
+}
+
+/// The room the help may take: everything between the title bar and the hint row.
+fn help_room(area: Rect) -> Rect {
+    Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(2))
+}
+
+/// A frame holding `cols` help columns of `rows` lines.
+fn help_size(cols: u16, rows: u16) -> (u16, u16) {
+    (4 + cols * HELP_COL as u16 + (cols - 1) * 3, rows + 2)
+}
+
+/// Where the help popup is drawn: as small as holds it all, centred, with the fewest columns
+/// and those balanced. If even the whole room can't hold it, it takes the room and scrolls.
+pub fn help_rect(area: Rect) -> Rect {
+    let room = help_room(area);
+    let lines = help_lines();
+    let max_cols = ((room.width.saturating_sub(4) as usize + 3) / (HELP_COL + 3)).max(1) as u16;
+    let max_rows = room.height.saturating_sub(2);
+    // Whole sections per column if that fits anywhere, else split sections where needed.
+    let fit_with = |whole: bool| (1..=max_cols).find_map(|cols| (1..=max_rows).find(|&rows| help_flow(cols, rows, 0, whole, &lines).1).map(|rows| (cols, rows)));
+    let fit = fit_with(true).or_else(|| fit_with(false));
+    let (w, h) = match fit {
+        Some((cols, rows)) => help_size(cols, rows),
+        None => help_size(max_cols, max_rows),
+    };
+    let (w, h) = (w.min(room.width), h.min(room.height));
+    Rect::new(room.x + (room.width - w) / 2, room.y + (room.height - h) / 2, w, h)
+}
+
+/// The help lines from `scroll` on, flowed down `cols` columns of `rows` lines: (column, row,
+/// line), and whether the last line is shown. A heading never sits alone at a column's foot, a
+/// key's row is never split, and a column never starts with a blank. With `whole`, a section
+/// that fits in a column is never split either.
+fn help_flow(cols: u16, rows: u16, scroll: usize, whole: bool, lines: &[HelpLine]) -> (Vec<(u16, u16, &HelpLine)>, bool) {
+    let (mut c, mut row) = (0, 0);
+    let mut placed = Vec::new();
+    for (i, line) in lines.iter().enumerate().skip(scroll) {
+        if row == 0 && matches!(line, HelpLine::Blank) {
+            continue;
+        }
+        // What must stay together from here: a heading and the line under it, or a key's row.
+        let keep = match line {
+            HelpLine::Heading(_) if whole => {
+                let len = 1 + lines[i + 1..].iter().take_while(|l| !matches!(l, HelpLine::Heading(_))).count();
+                // Not counting the blank before the next heading.
+                (len - usize::from(matches!(lines.get(i + len - 1), Some(HelpLine::Blank)))) as u16
+            }
+            HelpLine::Heading(_) => 2,
+            HelpLine::Key(k, _) if !k.is_empty() => 1 + lines[i + 1..].iter().take_while(|l| matches!(l, HelpLine::Key(k, _) if k.is_empty())).count() as u16,
+            _ => 1,
+        };
+        if row > 0 && row + keep > rows && keep < rows {
+            (c, row) = (c + 1, 0);
+        }
+        if row >= rows {
+            (c, row) = (c + 1, 0);
+            if matches!(line, HelpLine::Blank) {
+                continue;
+            }
+        }
+        if c >= cols {
+            return (placed, false);
+        }
+        placed.push((c, row, line));
+        row += 1;
+    }
+    (placed, true)
+}
+
+/// Whether the help keeps its sections whole in this grid: when they all fit that way.
+fn help_whole(cols: u16, rows: u16, lines: &[HelpLine]) -> bool {
+    help_flow(cols, rows, 0, true, lines).1
+}
+
+/// The help's columns and rows inside its popup.
+fn help_grid(r: Rect) -> (u16, u16) {
+    (((r.width.saturating_sub(4) as usize + 3) / (HELP_COL + 3)).max(1) as u16, r.height.saturating_sub(2))
+}
+
+/// Whether the help, scrolled to `scroll`, still has lines below what shows.
+pub fn help_more(area: Rect, scroll: usize) -> bool {
+    let (cols, rows) = help_grid(help_rect(area));
+    let lines = help_lines();
+    !help_flow(cols, rows, scroll, help_whole(cols, rows, &lines), &lines).1
+}
+
+pub fn help(buf: &mut Buffer, area: Rect, scroll: usize) {
+    // The screen behind dims, so the popup reads as one.
+    fade(buf, area, DESK, 0.6);
+    let r = help_rect(area);
+    let lines = help_lines();
+    let (cols, rows) = help_grid(r);
+    let (placed, all) = help_flow(cols, rows, scroll, help_whole(cols, rows, &lines), &lines);
+    let status = match (scroll > 0, !all) {
+        (false, false) => "Esc or F1 closes",
+        (_, true) => "arrows or wheel for more · Esc or F1 closes",
+        (true, false) => "arrows or wheel to go back up · Esc or F1 closes",
+    };
+    frame(buf, r, "HOW TO PLAY", status, DESK);
+    for (c, row, line) in placed {
+        let x = r.x + 2 + c * (HELP_COL as u16 + 3);
+        let y = r.y + 1 + row;
+        match line {
+            HelpLine::Heading(h) => bold(buf, x, y, h, AMBER, DESK),
+            HelpLine::Key(k, what) => {
+                bold(buf, x, y, k, PAPER, DESK);
+                text(buf, x + HELP_KEYS as u16 + 1, y, what, TEXT, DESK);
+            }
+            HelpLine::Text(t) => text(buf, x, y, t, TEXT, DESK),
+            HelpLine::Blank => {}
+        }
+    }
+}
+
+/// The F1 label in the desk's title bar, left of the ledger.
+pub fn help_button(area: Rect, ledger: &str) -> Rect {
+    let w = 9;
+    Rect::new(area.x + area.width - ledger.chars().count() as u16 - 2 - w - 1, area.y, w, 1)
 }
 
 /// A meter reading in three significant figures with an SI prefix.
@@ -1534,11 +2097,41 @@ pub struct ShelfItem {
 /// Each slot on the shelf: a gadget's picture, its name and its ticks.
 const SHELF_W: u16 = 13;
 
-/// Where the shelf's gadgets are, for drawing and for the mouse.
-pub fn shelf_slots(area: Rect, n: usize) -> Vec<Rect> {
+/// Jobs per chapter: a page of the shelf when it can't hold every gadget at once.
+const CHAPTER: usize = 6;
+
+/// How many gadgets a page of the shelf holds: all of them when they fit across, else a
+/// chapter (pillar 6: a wider terminal shows more of the shelf, never bigger gadgets).
+pub fn shelf_page_size(area: Rect, n: usize) -> usize {
+    let fit = (area.width.saturating_sub(6) / SHELF_W) as usize;
+    if n <= fit { n.max(1) } else { CHAPTER.min(fit).max(1) }
+}
+
+/// Where the shelf's gadgets are on page `page`, for drawing and for the mouse; a gadget on
+/// another page has an empty rect.
+pub fn shelf_slots(area: Rect, n: usize, page: usize) -> Vec<Rect> {
+    let size = shelf_page_size(area, n);
+    let first = page * size;
+    let shown = n.saturating_sub(first).min(size);
     let y = title_top(area) + LOGO_TILES.1 * TILE_H + 9;
-    let x0 = area.x + area.width.saturating_sub(SHELF_W * n as u16) / 2;
-    (0..n).map(|i| Rect::new(x0 + i as u16 * SHELF_W, y, SHELF_W, 5)).collect()
+    let x0 = area.x + area.width.saturating_sub(SHELF_W * shown as u16) / 2;
+    (0..n)
+        .map(|i| if i >= first && i < first + shown { Rect::new(x0 + (i - first) as u16 * SHELF_W, y, SHELF_W, 5) } else { Rect::default() })
+        .collect()
+}
+
+/// The `<` and `>` at the plank's ends that turn the shelf's pages, where there is a page that
+/// way.
+pub fn shelf_arrows(area: Rect, n: usize, page: usize) -> [Option<Rect>; 2] {
+    let slots = shelf_slots(area, n, page);
+    let shown: Vec<&Rect> = slots.iter().filter(|r| r.width > 0).collect();
+    let (Some(first), Some(last)) = (shown.first(), shown.last()) else { return [None, None] };
+    let pages = n.div_ceil(shelf_page_size(area, n));
+    let y = first.y + 2;
+    [
+        (page > 0).then(|| Rect::new(first.x.saturating_sub(3), y, 2, 1)),
+        (page + 1 < pages).then(|| Rect::new(last.x + last.width + 1, y, 2, 1)),
+    ]
 }
 
 /// A gadget's picture: four rows of eight pixels, drawn two to a cell with half blocks, and its
@@ -1551,6 +2144,12 @@ fn shelf_art(id: &str) -> ([&'static str; 4], &'static str) {
         "dolls-house" => (["...RR...", ".RRRRRR.", ".WWrWWW.", ".WWgWDW."], "doll's house"),
         "christmas-star" => (["...SS...", "SSSrSSSS", ".SrSSrS.", ".SS..SS."], "star"),
         "cafe-sign" => (["PPPPPPPP", "PtPtPtPP", "PPPPPPPP", "...KK..."], "café sign"),
+        "boat-gauge" => ([".KKKKKK.", "KWWWWWYK", "KWWWYWWK", ".KKKKKK."], "boat gauge"),
+        "night-dimmer" => (["..RRRR..", ".RRLLRR.", "...KK...", "..KKKK.."], "night light"),
+        "fuel-gauge" => (["..RRR...", ".RRRRRR.", ".RRWYRR.", ".RRRRRR."], "fuel gauge"),
+        "light-meter" => (["..KK....", "KKKKKKKK", "KKGLLGKK", "KKKKKKKK"], "light meter"),
+        "fridge-gauge" => ([".WWWWWW.", ".WWWWWW.", ".WGWWgW.", ".WWWWWW."], "fridge"),
+        "trailer-fuse" => (["........", "GGGGGGG.", "GGGGGGGt", "..K...K."], "trailer"),
         _ => (["........", ".GGGGGG.", ".GGGGGG.", "........"], "gadget"),
     }
 }
@@ -1565,7 +2164,13 @@ pub fn title_items(area: Rect, n: usize) -> Vec<Rect> {
 /// The launch page: the name in copper with current running through it, the menu, the shelf of
 /// gadgets, the ledger in the corner. Fixed size, centred: a bigger terminal shows more desk round it.
 #[allow(clippy::too_many_arguments)]
-pub fn title(buf: &mut Buffer, area: Rect, menu: &[String], sel: usize, line: &str, shelf_items: &[ShelfItem], hover: Option<usize>, time: f64) {
+/// The sound switch in the launch page's top left corner.
+pub fn sound_button(area: Rect) -> Rect {
+    Rect::new(area.x + 1, area.y, 11, 1)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn title(buf: &mut Buffer, area: Rect, menu: &[String], sel: usize, line: &str, muted: bool, shelf_items: &[ShelfItem], page: usize, hover: Option<usize>, time: f64) {
     fill(buf, area, DESK);
     let (pw, ph) = (LOGO_TILES.0 * TILE_W, LOGO_TILES.1 * TILE_H);
     let x0 = area.x + area.width.saturating_sub(pw) / 2;
@@ -1603,24 +2208,35 @@ pub fn title(buf: &mut Buffer, area: Rect, menu: &[String], sel: usize, line: &s
         let padded = format!("{label:^w$}", w = r.width as usize);
         bold(buf, r.x, r.y, &padded, fg, bg);
     }
-    // The ledger in the corner, as on the desk.
+    // The ledger in the corner, as on the desk, and the sound in the other.
     text(buf, area.x + area.width.saturating_sub(line.chars().count() as u16 + 1), area.y, line, AMBER, DESK);
-    shelf(buf, area, shelf_items, hover, time);
-    let hint = "arrows and Enter, or click · Ctrl+C quits";
+    let sb = sound_button(area);
+    bold(buf, sb.x, sb.y, if muted { " sound off " } else { " sound on  " }, DESK, FRAME);
+    shelf(buf, area, shelf_items, page, hover, time);
+    let hint = "arrows and Enter, or click · m sound · F1 help · Ctrl+C quits";
     text(buf, area.x + area.width.saturating_sub(hint.chars().count() as u16) / 2, area.y + area.height - 1, hint, DIM, DESK);
 }
 
 /// The shelf of gadgets on the launch page: dark until the job is solved, then lit, with its
 /// ticks under it. Jobs not yet arrived are sealed letters.
-fn shelf(buf: &mut Buffer, area: Rect, items: &[ShelfItem], hover: Option<usize>, time: f64) {
+fn shelf(buf: &mut Buffer, area: Rect, items: &[ShelfItem], page: usize, hover: Option<usize>, time: f64) {
     const WOOD: Rgb = (92, 62, 36);
-    let slots = shelf_slots(area, items.len());
-    let (Some(first), Some(last)) = (slots.first(), slots.last()) else { return };
-    // The plank they stand on.
+    let slots = shelf_slots(area, items.len(), page);
+    let shown: Vec<Rect> = slots.iter().copied().filter(|r| r.width > 0).collect();
+    let (Some(first), Some(last)) = (shown.first(), shown.last()) else { return };
+    // The plank they stand on, and the way to the other chapters.
     for x in first.x..last.x + last.width {
         put(buf, x, first.y + 2, "▀", WOOD, DESK);
     }
+    for (r, s) in shelf_arrows(area, items.len(), page).iter().zip([" <", "> "]) {
+        if let Some(r) = r {
+            bold(buf, r.x, r.y, s, AMBER, DESK);
+        }
+    }
     for (i, (item, r)) in items.iter().zip(&slots).enumerate() {
+        if r.width == 0 {
+            continue;
+        }
         let (art, name) = shelf_art(&item.id);
         let px = r.x + (SHELF_W - 8) / 2;
         // A slow glow on what works, each gadget a little out of step with the next.
@@ -1744,6 +2360,16 @@ pub fn gallery(buf: &mut Buffer, area: Rect) {
         ("test point", Kind::TestPoint, Dir::W, Look::default()),
         ("test point N", Kind::TestPoint, Dir::N, Look::default()),
         ("supply", Kind::Supply { volts: 5.0, limit: 0.1 }, Dir::W, Look::default()),
+        ("fuse", Kind::Fuse { amps: 2.0 }, Dir::W, Look::default()),
+        ("fuse blown N", Kind::Fuse { amps: 2.0 }, Dir::N, Look { burnt: true, ..Look::default() }),
+        ("LDR dark", Kind::Ldr { lux: 0.0 }, Dir::W, Look::default()),
+        ("LDR daylight N", Kind::Ldr { lux: 1000.0 }, Dir::N, Look::default()),
+        ("NTC freezer", Kind::Ntc { celsius: -18.0 }, Dir::W, Look::default()),
+        ("NTC hand N", Kind::Ntc { celsius: 37.0 }, Dir::N, Look::default()),
+        ("pot W 0", Kind::Pot { ohms: 10e3, turn: 0.0 }, Dir::W, Look::default()),
+        ("pot N .5", Kind::Pot { ohms: 10e3, turn: 0.5 }, Dir::N, Look::default()),
+        ("pot E 1", Kind::Pot { ohms: 10e3, turn: 1.0 }, Dir::E, Look::default()),
+        ("pot S .5", Kind::Pot { ohms: 10e3, turn: 0.5 }, Dir::S, Look::default()),
     ];
     let per_row = 6;
     let (cell_w, cell_h) = (16u16, 11u16);

@@ -86,7 +86,7 @@ fn lit(part: &str, min: f64, max: f64) -> Check {
 }
 
 fn case(name: &str, battery: Option<f64>, set: &[(&str, bool)], check: Check) -> Case {
-    Case { name: name.into(), battery, set: set.iter().map(|(l, v)| (l.to_string(), *v)).collect(), check }
+    Case { name: name.into(), battery, set: set.iter().map(|(l, v)| (l.to_string(), if *v { 1.0 } else { 0.0 })).collect(), check }
 }
 
 fn run_cases(board: &Board, cases: &[Case]) {

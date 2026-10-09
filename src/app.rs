@@ -11,12 +11,12 @@ use ratatui::layout::Rect;
 
 use crate::audio::{Audio, Sfx};
 use crate::bench::{diagnose, run_case, si};
-use crate::circuit::{Board, Cell, Dir, Kind, Live, Pos};
+use crate::circuit::{Board, CELSIUS_STEPS, Cell, Dir, Kind, LUX_STEPS, Live, Pos};
 use crate::input::Act;
-use crate::job::{Item, Job, Score, Ticks, same_part};
+use crate::job::{Item, Job, SANDBOX, Score, Ticks, same_part};
 use crate::book::Page;
 use crate::progress::Progress;
-use crate::render::{self, BoardView, Card, DeskView, Edge, Layout, Meter, Report, Slot, Splits};
+use crate::render::{self, BoardView, Card, DeskView, Edge, Grow, Layout, Meter, Report, Slot, Splits};
 
 /// One solver step, seconds.
 const STEP: f64 = 0.001;
@@ -46,8 +46,9 @@ pub enum Screen {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuItem {
     Continue,
+    Sandbox,
     Notebook,
-    Sound,
+    Help,
     Quit,
 }
 
@@ -57,6 +58,29 @@ pub enum Overlay {
     Report(Report),
     /// The Master's Notebook open at a page, its text scrolled down by `scroll` lines.
     Book { page: usize, scroll: usize },
+    /// The card binder, open at card `sel` of `BINDER`, scrolled down by `scroll` rows.
+    Binder { sel: usize, scroll: usize },
+}
+
+/// The binder's cards in order, one per kind of part; each kind here is the one drawn.
+const BINDER: [Kind; 12] = [
+    Kind::Battery { volts: 4.5, r_int: 0.45 },
+    Kind::Supply { volts: 5.0, limit: 0.1 },
+    Kind::Led(crate::circuit::Colour::Red),
+    Kind::Lamp { ohms: 15.0, watts: 1.35 },
+    Kind::Resistor { ohms: 220.0, watts: 0.25 },
+    Kind::Capacitor { farads: 100e-6 },
+    Kind::Switch { closed: false },
+    Kind::Button { held: false },
+    Kind::Fuse { amps: 2.0 },
+    Kind::Pot { ohms: 10e3, turn: 0.5 },
+    Kind::Ldr { lux: 100.0 },
+    Kind::Ntc { celsius: 20.0 },
+];
+
+/// The binder card a part belongs on.
+fn binder_card(k: Kind) -> Option<usize> {
+    BINDER.iter().position(|b| std::mem::discriminant(b) == std::mem::discriminant(&k))
 }
 
 /// A mouse stroke in progress on the board.
@@ -115,10 +139,16 @@ pub struct App {
     /// A button held by the keyboard until this time; by the mouse until it lets go.
     held: Option<(usize, Option<f64>)>,
     message: Option<(String, f64)>,
+    /// The sandbox is on the desk instead of a job (`current` stays the job to go back to), and
+    /// its board while it isn't.
+    pub sandbox: bool,
+    sandbox_board: Option<Board>,
     /// Sound as the player last set it, for the save file (`--mute` alone doesn't stick).
     sound_off: bool,
     /// The gadget on the launch page's shelf under the mouse.
     shelf_hover: Option<usize>,
+    /// The shelf's page when it can't show every gadget: as turned, else the open job's.
+    shelf_page: Option<usize>,
     /// The board and drawers as last seen, and when they last changed: a save follows a
     /// couple of seconds after the last edit.
     seen: (Board, Vec<Item>),
@@ -137,6 +167,11 @@ pub struct App {
     /// A middle-button drag in progress: where it started, the view then, and whether it moved.
     pan: Option<(u16, u16, (usize, usize), bool)>,
     hover_edge: Option<Edge>,
+    /// The panel grown along its strip, if any, and the panel title under the mouse.
+    pub grown: Option<Grow>,
+    hover_title: Option<Grow>,
+    /// The help page, open and scrolled down this many lines; it covers the launch page or the desk.
+    pub help: Option<usize>,
     pub quit: bool,
     pub audio: Audio,
     acc: f64,
@@ -172,19 +207,33 @@ fn rotate(d: Dir) -> Dir {
 }
 
 pub fn part_name(k: Kind) -> String {
+    // Values as they are printed on parts: "2.2 kΩ", "1.5 V", no trailing zeros.
+    let value = |v: f64, unit: &str| {
+        let s = si(v, unit);
+        match s.split_once(' ') {
+            Some((n, u)) if n.contains('.') => format!("{} {u}", n.trim_end_matches('0').trim_end_matches('.')),
+            _ => s,
+        }
+    };
     match k {
         Kind::Resistor { ohms, watts } => {
-            let value = si(ohms, "Ω").replace(".00 ", " ").replace(".0 ", " ");
-            if watts == 0.25 { format!("Resistor {value}") } else { format!("Resistor {value} {watts} W") }
+            if watts == 0.25 { format!("Resistor {}", value(ohms, "Ω")) } else { format!("Resistor {} {watts} W", value(ohms, "Ω")) }
         }
-        Kind::Lamp { .. } => "Lamp".into(),
-        Kind::Battery { volts, .. } => format!("Battery {}", si(volts, "V")),
-        Kind::Supply { .. } => "Bench supply".into(),
+        // Bulbs are sold by voltage (the one their hot resistance is for); the watts are on the card.
+        Kind::Lamp { ohms, watts } => format!("Lamp {:.1} V", (ohms * watts).sqrt()),
+        Kind::Battery { volts, .. } => format!("Battery {}", value(volts, "V")),
+        Kind::Supply { volts, .. } => format!("Bench supply {}", value(volts, "V")),
         Kind::Switch { .. } => "Slide switch".into(),
         Kind::Button { .. } => "Push button".into(),
         Kind::Led(c) => format!("LED, {}", c.name()),
-        Kind::Capacitor { farads } => format!("Capacitor {}", si(farads, "F")),
+        // Capacitors are marked in µF from 1 µF up (1000 µF, never 1 mF), in nF below.
+        Kind::Capacitor { farads } if farads >= 1e-6 => format!("Capacitor {} µF", (farads * 1e6).round()),
+        Kind::Capacitor { farads } => format!("Capacitor {} nF", (farads * 1e9).round()),
         Kind::TestPoint => "Test point".into(),
+        Kind::Fuse { amps } => format!("Fuse {}", value(amps, "A")),
+        Kind::Ldr { .. } => "Light sensor (LDR)".into(),
+        Kind::Ntc { .. } => "Thermistor 10 kΩ".into(),
+        Kind::Pot { ohms, .. } => format!("Pot {}", value(ohms, "Ω")),
     }
 }
 
@@ -236,7 +285,10 @@ impl App {
             message: None,
             unsolvable: false,
             sound_off: progress.muted,
+            sandbox: false,
+            sandbox_board: progress.boards.iter().find(|b| b.0 == SANDBOX).map(|b| b.1.clone()),
             shelf_hover: None,
+            shelf_page: None,
             seen: (Board::new(1, 1), Vec::new()),
             changed_at: None,
             area: Rect::new(0, 0, render::MIN_W, render::MIN_H),
@@ -246,6 +298,9 @@ impl App {
             job_at,
             pan: None,
             hover_edge: None,
+            grown: None,
+            hover_title: None,
+            help: None,
             quit: false,
             audio,
             acc: 0.0,
@@ -290,6 +345,7 @@ impl App {
     /// Opens job `i`: puts the open one's board aside, and brings this one's back as it was
     /// left, or fresh.
     pub fn open_job(&mut self, i: usize) {
+        self.leave_sandbox();
         if i >= self.jobs.len() || i == self.current {
             return;
         }
@@ -307,8 +363,14 @@ impl App {
     fn saved_into_place(&mut self, i: usize) {
         self.current = i;
         self.job = self.jobs[i].clone();
+        let kept = self.saved[i].take();
+        self.on_desk(kept);
+    }
+
+    /// Puts `self.job` on the desk: the board and drawers as kept, or fresh.
+    fn on_desk(&mut self, kept: Option<(Board, Vec<Item>)>) {
         let (fresh, job_at) = self.job.board.embed(BENCH.0, BENCH.1);
-        (self.board, self.drawer) = self.saved[i].take().unwrap_or((fresh, self.job.drawer.clone()));
+        (self.board, self.drawer) = kept.unwrap_or((fresh, self.job.drawer.clone()));
         self.job_at = job_at;
         self.cursor = Pos { x: job_at.x + self.job.board.w / 2, y: job_at.y + self.job.board.h / 2 };
         self.view = (self.cursor.x, self.cursor.y);
@@ -321,23 +383,50 @@ impl App {
         log::info!("job {} ({}) on the desk", self.job.id, self.job.name);
     }
 
+    /// Puts the open job aside and brings out the sandbox, with every kind of part.
+    pub fn enter_sandbox(&mut self) {
+        if self.sandbox {
+            return;
+        }
+        self.saved[self.current] = Some(self.snapshot());
+        self.sandbox = true;
+        self.job = Job::sandbox();
+        let kept = self.sandbox_board.take().map(|b| (b, self.job.drawer.clone()));
+        self.on_desk(kept);
+        self.save();
+    }
+
+    /// Puts the sandbox aside and brings back the job it left.
+    fn leave_sandbox(&mut self) {
+        if !self.sandbox {
+            return;
+        }
+        self.sandbox_board = Some(self.board.clone());
+        self.sandbox = false;
+        self.saved_into_place(self.current);
+    }
+
     /// Writes the ledger, the solved jobs, every board and the panel edges to the save file.
     pub fn save(&self) {
         let mut boards = Vec::new();
         for (i, job) in self.jobs.iter().enumerate() {
-            let state = if i == self.current { Some((&self.board, &self.drawer)) } else { self.saved[i].as_ref().map(|(b, d)| (b, d)) };
+            let state = if i == self.current && !self.sandbox { Some((&self.board, &self.drawer)) } else { self.saved[i].as_ref().map(|(b, d)| (b, d)) };
             if let Some((b, d)) = state {
                 boards.push((job.id.clone(), b.clone(), d.iter().map(|it| it.count).collect()));
             }
         }
         let solved = self.jobs.iter().zip(&self.solved).filter(|(_, s)| **s).map(|(j, _)| j.id.clone()).collect();
         let best = self.jobs.iter().zip(&self.best).filter_map(|(j, b)| b.map(|(profit, t)| (j.id.clone(), profit, t))).collect();
+        let sandbox = if self.sandbox { Some(&self.board) } else { self.sandbox_board.as_ref() };
+        if let Some(b) = sandbox {
+            boards.push((SANDBOX.into(), b.clone(), Vec::new()));
+        }
         let open = Some(self.job.id.clone());
         Progress { ledger: self.ledger, solved, best, splits: self.splits, open, muted: self.sound_off, boards }.save();
     }
 
     fn layout(&self) -> Option<Layout> {
-        render::layout(self.area, &self.board, self.drawer.len() + 1, self.splits, self.view)
+        render::layout(self.area, &self.board, self.drawer.len() + 1, self.splits, self.view, self.grown)
     }
 
     /// A tile of the job's own board, on the workbench.
@@ -508,6 +597,9 @@ impl App {
                     self.audio.play(Sfx::Click);
                 }
                 Kind::Button { .. } => self.hold(i, Some(self.time + 0.4)),
+                // An LDR steps through the light, a thermistor through the temperatures, a pot
+                // a tenth of a turn (round again at the end).
+                k @ (Kind::Ldr { .. } | Kind::Ntc { .. } | Kind::Pot { .. }) => self.set_state(i, next_state(k)),
                 _ => {}
             },
             Cell::Trace(0b1111) | Cell::Jumper => {
@@ -518,6 +610,20 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Sets a sensor's light or warmth, or a pot's turn, and runs the circuit on from there.
+    fn set_state(&mut self, i: usize, kind: Kind) {
+        self.board.parts[i].kind = kind;
+        log::info!("{} now {}", self.board.parts[i].label, crate::job::kind_words(kind));
+        self.audio.play(Sfx::Click);
+        self.rebuilt();
+    }
+
+    /// Turns a pot by `by` (a share of its whole turn), stopping at the ends.
+    fn turn_pot(&mut self, i: usize, by: f64) {
+        let Kind::Pot { ohms, turn } = self.board.parts[i].kind else { return };
+        self.set_state(i, Kind::Pot { ohms, turn: (((turn + by) * 10.0).round() / 10.0).clamp(0.0, 1.0) });
     }
 
     fn hold(&mut self, part: usize, until: Option<f64>) {
@@ -562,6 +668,11 @@ impl App {
     }
 
     fn test(&mut self) {
+        if self.sandbox {
+            self.say("The sandbox has no customer, so there's nothing to test. Measure it instead.");
+            self.audio.play(Sfx::Denied);
+            return;
+        }
         let rows: Vec<(String, bool, String)> = self
             .job
             .cases
@@ -735,6 +846,16 @@ impl App {
             self.quit = true;
             return;
         }
+        if matches!(a, Act::Help) {
+            self.help = if self.help.is_some() { None } else { Some(0) };
+            log::info!("help {}", if self.help.is_some() { "open" } else { "closed" });
+            self.audio.play(Sfx::Select);
+            return;
+        }
+        if let Some(scroll) = self.help {
+            self.help_act(a, scroll);
+            return;
+        }
         if self.screen == Screen::Title {
             self.title_act(a);
             return;
@@ -752,6 +873,10 @@ impl App {
             }
             Overlay::Book { .. } => {
                 self.book_act(a);
+                return;
+            }
+            Overlay::Binder { .. } => {
+                self.binder_act(a);
                 return;
             }
             Overlay::None => {}
@@ -835,6 +960,11 @@ impl App {
             Act::Undo => self.step_undo(true),
             Act::Redo => self.step_undo(false),
             Act::Mute => self.toggle_sound(),
+            Act::Grow(g) => {
+                self.grown = if self.grown == Some(g) { None } else { Some(g) };
+                log::info!("grown {:?}", self.grown);
+                self.audio.play(Sfx::Select);
+            }
             Act::Back => {
                 // Esc puts down whatever is in hand; with nothing in hand it goes to the launch page.
                 if self.copper_mode || self.probe_armed || self.pick == Pick::Eraser {
@@ -843,21 +973,39 @@ impl App {
                     if self.pick == Pick::Eraser {
                         self.pick = Pick::Copper;
                     }
+                } else if let Some(g) = self.grown {
+                    self.act(Act::Grow(g));
                 } else {
                     self.screen = Screen::Title;
                     self.save();
                 }
             }
+            Act::NextJob | Act::PrevJob if self.sandbox => self.say("The sandbox has no jobs. Esc goes back to the launch page."),
             Act::NextJob => self.open_job(self.current + 1),
             Act::PrevJob => {
                 if self.current > 0 {
                     self.open_job(self.current - 1);
                 }
             }
-            Act::Quit => {}
+            Act::Binder => {
+                // Open at the part under the cursor, or the one in hand.
+                let at = match self.board.cell(self.cursor) {
+                    Cell::Part(i) => Some(self.board.parts[i].kind),
+                    _ => match self.pick {
+                        Pick::Item(i) => Some(self.drawer[i].kind),
+                        _ => None,
+                    },
+                };
+                let sel = at.and_then(binder_card).unwrap_or(0);
+                self.overlay = Overlay::Binder { sel, scroll: 0 };
+                log::info!("binder at {:?}", BINDER[sel]);
+                self.audio.play(Sfx::Select);
+            }
+            Act::Quit | Act::Help => {}
             Act::Hover(x, y) => {
                 if let Some(l) = self.layout() {
                     self.hover_edge = render::edge_at(&l, x, y);
+                    self.hover_title = render::title_at(&l, x, y);
                     if let Some(p) = render::tile_at(&l, &self.board, x, y) {
                         self.cursor = p;
                     }
@@ -872,7 +1020,11 @@ impl App {
                     self.act(if up { Act::PrevSlot } else { Act::NextSlot });
                 } else if let Some(p) = render::tile_at(&l, &self.board, x, y) {
                     self.cursor = p;
-                    self.rotate_at(p);
+                    // The wheel turns a pot's knob; anything else it rotates.
+                    match self.board.cell(p) {
+                        Cell::Part(i) if matches!(self.board.parts[i].kind, Kind::Pot { .. }) => self.turn_pot(i, if up { 0.1 } else { -0.1 }),
+                        _ => self.rotate_at(p),
+                    }
                 }
             }
         }
@@ -881,13 +1033,13 @@ impl App {
     /// What the launch page offers, in order.
     pub fn menu(&self) -> Vec<(MenuItem, String)> {
         let start = if self.returning || !self.undo.is_empty() || self.solved.iter().any(|&s| s) { "Continue" } else { "Start" };
-        let sound = if self.audio.muted { "Sound: off" } else { "Sound: on" };
-        vec![(MenuItem::Continue, start.into()), (MenuItem::Notebook, "The Master's Notebook".into()), (MenuItem::Sound, sound.into()), (MenuItem::Quit, "Quit".into())]
+        vec![(MenuItem::Continue, start.into()), (MenuItem::Sandbox, "Sandbox".into()), (MenuItem::Notebook, "The Master's Notebook".into()), (MenuItem::Help, "How to play".into()), (MenuItem::Quit, "Quit".into())]
     }
 
     fn choose(&mut self, item: MenuItem) {
         match item {
             MenuItem::Continue => {
+                self.leave_sandbox();
                 self.screen = Screen::Desk;
                 self.audio.play(Sfx::Place);
             }
@@ -895,12 +1047,20 @@ impl App {
                 self.screen = Screen::Desk;
                 self.open_page(0);
             }
-            MenuItem::Sound => {
-                self.toggle_sound();
-                self.audio.play(Sfx::Select);
+            MenuItem::Help => self.act(Act::Help),
+            MenuItem::Sandbox => {
+                self.enter_sandbox();
+                self.screen = Screen::Desk;
+                self.audio.play(Sfx::Place);
             }
             MenuItem::Quit => self.quit = true,
         }
+    }
+
+    fn shelf_page(&self) -> usize {
+        let size = render::shelf_page_size(self.area, self.jobs.len());
+        let pages = self.jobs.len().div_ceil(size);
+        self.shelf_page.unwrap_or(self.current / size).min(pages - 1)
     }
 
     fn shelf_items(&self) -> Vec<render::ShelfItem> {
@@ -909,14 +1069,67 @@ impl App {
             .collect()
     }
 
+    fn help_act(&mut self, a: Act, scroll: usize) {
+        let page = render::help_rect(self.area).height.saturating_sub(4) as usize;
+        let down = |n: usize| {
+            let mut s = scroll;
+            for _ in 0..n {
+                if !render::help_more(self.area, s) {
+                    break;
+                }
+                s += 1;
+            }
+            s
+        };
+        let to = match a {
+            Act::Move(Dir::S) | Act::Scroll(_, _, false) => down(if matches!(a, Act::Scroll(..)) { 3 } else { 1 }),
+            Act::Move(Dir::N) => scroll.saturating_sub(1),
+            Act::Scroll(_, _, true) => scroll.saturating_sub(3),
+            Act::NextJob => down(page),
+            Act::PrevJob => scroll.saturating_sub(page),
+            Act::Back | Act::Place | Act::Down(..) => {
+                self.help = None;
+                return;
+            }
+            _ => scroll,
+        };
+        self.help = Some(to);
+    }
+
     fn title_act(&mut self, a: Act) {
         let menu = self.menu();
         let rects = render::title_items(self.area, menu.len());
         let at = |x: u16, y: u16| rects.iter().position(|r| render::in_rect(*r, x, y));
-        let shelf = render::shelf_slots(self.area, self.jobs.len());
+        let page = self.shelf_page();
+        let shelf = render::shelf_slots(self.area, self.jobs.len(), page);
         let on_shelf = |x: u16, y: u16| shelf.iter().position(|r| render::in_rect(*r, x, y));
+        // The plank's arrows, or left and right, turn the shelf's pages.
+        let pages = self.jobs.len().div_ceil(render::shelf_page_size(self.area, self.jobs.len()));
+        let arrows = render::shelf_arrows(self.area, self.jobs.len(), page);
+        let turn = match a {
+            Act::Move(Dir::W) => Some(false),
+            Act::Move(Dir::E) => Some(true),
+            Act::Down(x, y, false) => arrows.iter().position(|r| r.is_some_and(|r| render::in_rect(r, x, y))).map(|k| k == 1),
+            _ => None,
+        };
+        if let Some(next) = turn {
+            let to = if next { (page + 1).min(pages - 1) } else { page.saturating_sub(1) };
+            if to != page {
+                self.shelf_page = Some(to);
+                self.audio.play(Sfx::Select);
+            }
+            return;
+        }
         if let Act::Hover(x, y) = a {
             self.shelf_hover = on_shelf(x, y);
+        }
+        // Sound sits in the corner, opposite the ledger.
+        if let Act::Down(x, y, false) = a
+            && render::in_rect(render::sound_button(self.area), x, y)
+        {
+            self.toggle_sound();
+            self.audio.play(Sfx::Select);
+            return;
         }
         // A gadget on the shelf opens its job on the desk.
         if let Act::Down(x, y, false) = a
@@ -947,6 +1160,91 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Whether a binder card is collected: a job that has arrived uses that kind of part, or it
+    /// is on the sandbox board.
+    fn collected(&self, card: usize) -> bool {
+        self.met_in(card).is_some()
+    }
+
+    /// Where a binder card's part was first met: the first arrived job with it, else the sandbox.
+    fn met_in(&self, card: usize) -> Option<String> {
+        let has = |kinds: Vec<Kind>| kinds.into_iter().any(|k| binder_card(k) == Some(card));
+        let job = (0..self.jobs.len())
+            .filter(|&i| self.unlocked(i))
+            .find(|&i| has(self.jobs[i].drawer.iter().map(|it| it.kind).chain(self.jobs[i].board.parts.iter().map(|p| p.kind)).collect()));
+        if let Some(i) = job {
+            return Some(format!("First met: {}, for {}", self.jobs[i].name, self.jobs[i].customer));
+        }
+        let sandbox = if self.sandbox { Some(&self.board) } else { self.sandbox_board.as_ref() };
+        sandbox.filter(|b| has(b.parts.iter().map(|p| p.kind).collect())).map(|_| "First met: in the sandbox".to_string())
+    }
+
+    fn binder_entries(&self) -> Vec<render::BinderEntry> {
+        let shop = Job::sandbox().drawer;
+        BINDER
+            .iter()
+            .enumerate()
+            .map(|(i, &kind)| {
+                let f = part_facts(kind);
+                let values: Vec<String> = shop
+                    .iter()
+                    .filter(|it| binder_card(it.kind) == Some(i))
+                    .filter_map(|it| match it.kind {
+                        Kind::Led(c) => Some(format!("{} {:.1} V", c.name(), c.vf())),
+                        Kind::Switch { .. } | Kind::Button { .. } | Kind::Ldr { .. } | Kind::Ntc { .. } => None,
+                        k => part_name(k).split_once(' ').map(|(_, v)| v.replace("supply ", "")),
+                    })
+                    .collect();
+                render::BinderEntry {
+                    name: match kind {
+                        Kind::Supply { .. } => "Bench supply".into(),
+                        Kind::Switch { .. } => "Slide switch".into(),
+                        Kind::Button { .. } => "Push button".into(),
+                        _ => f.noun.into(),
+                    },
+                    collected: self.collected(i),
+                    kind,
+                    met: self.met_in(i).unwrap_or_default(),
+                    values: values.iter().map(|v| v.replace(' ', "\u{a0}")).collect::<Vec<_>>().join(", "),
+                    rules: f.rules.iter().map(|(k, r)| (k.to_string(), r.to_string())).collect(),
+                    why: f.why.into(),
+                    flavour: f.flavour.into(),
+                }
+            })
+            .collect()
+    }
+
+    fn binder_act(&mut self, a: Act) {
+        let Overlay::Binder { sel, scroll } = self.overlay else { return };
+        let Some(l) = self.layout() else { return };
+        let list = render::book_layout(&l).list;
+        let n = BINDER.len();
+        let to = match a {
+            Act::Back | Act::Binder => {
+                self.overlay = Overlay::None;
+                return;
+            }
+            // The wheel over the list changes card; over the card it scrolls.
+            Act::Scroll(x, y, up) if !render::in_rect(list, x, y) => {
+                let s = if up { scroll.saturating_sub(1) } else { scroll + 1 };
+                self.overlay = Overlay::Binder { sel, scroll: s };
+                return;
+            }
+            Act::Move(Dir::N) | Act::PrevSlot | Act::Scroll(_, _, true) => (sel + n - 1) % n,
+            Act::Move(Dir::S) | Act::NextSlot | Act::Scroll(_, _, false) => (sel + 1) % n,
+            Act::Down(x, y, _) if render::in_rect(list, x, y) && ((y - list.y) as usize) < n => (y - list.y) as usize,
+            Act::Down(x, y, _) if !render::in_rect(l.overlay, x, y) => {
+                self.overlay = Overlay::None;
+                return;
+            }
+            _ => sel,
+        };
+        if to != sel {
+            self.audio.play(Sfx::Select);
+            self.overlay = Overlay::Binder { sel: to, scroll: 0 };
         }
     }
 
@@ -990,16 +1288,24 @@ impl App {
                     self.book_point = Some(p);
                     let Some((_, b, live)) = &mut self.example else { return };
                     if let Cell::Part(i) = b.cell(p) {
-                        let flipped = match b.parts[i].kind {
-                            Kind::Switch { closed } => Some(Kind::Switch { closed: !closed }),
-                            Kind::Button { held } => Some(Kind::Button { held: !held }),
-                            _ => None,
-                        };
-                        if let Some(k) = flipped {
-                            b.parts[i].kind = k;
-                            live.set_switch(i, matches!(k, Kind::Switch { closed: true } | Kind::Button { held: true }));
-                            self.audio.play(Sfx::Click);
+                        match b.parts[i].kind {
+                            Kind::Switch { closed } => {
+                                b.parts[i].kind = Kind::Switch { closed: !closed };
+                                live.set_switch(i, !closed);
+                            }
+                            Kind::Button { held } => {
+                                b.parts[i].kind = Kind::Button { held: !held };
+                                live.set_switch(i, !held);
+                            }
+                            // A sensor's light or warmth, or a pot's turn: the page's circuit
+                            // is rebuilt with it.
+                            k @ (Kind::Ldr { .. } | Kind::Ntc { .. } | Kind::Pot { .. }) => {
+                                b.parts[i].kind = next_state(k);
+                                *live = Live::build(b);
+                            }
+                            _ => return,
                         }
+                        self.audio.play(Sfx::Click);
                     }
                 } else if !render::in_rect(l.overlay, x, y) {
                     self.overlay = Overlay::None;
@@ -1094,6 +1400,10 @@ impl App {
     }
 
     fn mouse_down(&mut self, x: u16, y: u16, right: bool) {
+        if render::in_rect(render::help_button(self.area, &self.ledger_line()), x, y) {
+            self.act(Act::Help);
+            return;
+        }
         let Some(l) = self.layout() else { return };
         if let Some(a) = render::button_at(&l, x, y) {
             if a == Act::Probe && self.probe.is_none() {
@@ -1103,6 +1413,11 @@ impl App {
             } else {
                 self.act(a);
             }
+            return;
+        }
+        if let Some(g) = render::title_at(&l, x, y) {
+            self.act(Act::Grow(g));
+            self.hover_title = render::title_at(&self.layout().unwrap_or(l), x, y);
             return;
         }
         if let Some(e) = render::edge_at(&l, x, y) {
@@ -1123,12 +1438,16 @@ impl App {
             self.act(Act::Notebook);
             return;
         }
+        if render::in_rect(render::binder_button(&l), x, y) {
+            self.act(Act::Binder);
+            return;
+        }
         if let Some(s) = render::slot_at(&l, x, y) {
             self.pick_slot(s);
             return;
         }
         let arrived = (0..self.jobs.len()).filter(|&i| self.unlocked(i)).count();
-        if render::in_rect(l.inbox, x, y) && y > l.inbox.y {
+        if !self.sandbox && render::in_rect(l.inbox, x, y) && y > l.inbox.y {
             let row = (y - l.inbox.y - 1) as usize;
             if render::inbox_compact(&l, arrived) {
                 // The second line steps back (left half) or on (right half).
@@ -1233,7 +1552,7 @@ impl App {
             match self.board.cell(s.last) {
                 Cell::Empty => self.place(s.last),
                 Cell::Trace(m) if m != 0b1111 && matches!(self.pick, Pick::Item(_)) => self.place(s.last),
-                Cell::Part(i) if matches!(self.board.parts[i].kind, Kind::Switch { .. }) => self.operate(s.last),
+                Cell::Part(i) if matches!(self.board.parts[i].kind, Kind::Switch { .. } | Kind::Ldr { .. } | Kind::Ntc { .. } | Kind::Pot { .. }) => self.operate(s.last),
                 Cell::Trace(0b1111) | Cell::Jumper => self.operate(s.last),
                 _ => {}
             }
@@ -1274,7 +1593,8 @@ impl App {
             if self.live.reading(&self.board, i).burnt && !self.board.parts[i].burnt {
                 self.board.parts[i].burnt = true;
                 let label = self.board.parts[i].label.clone();
-                self.say(format!("{label} burnt out! Press f or click MEND to replace it."));
+                let what = if matches!(self.board.parts[i].kind, Kind::Fuse { .. }) { "blew" } else { "burnt out" };
+                self.say(format!("{label} {what}! Press f or click MEND to replace it."));
                 self.audio.play(Sfx::Pop);
             }
         }
@@ -1309,9 +1629,10 @@ impl App {
             Overlay::Drawers { .. } => "drawers",
             Overlay::Report(_) => "report",
             Overlay::Book { .. } => "book",
+            Overlay::Binder { .. } => "binder",
         };
         log::debug!(
-            "snap t={:.1} probe={:?} cursor={},{} pick={:?} facing={:?} copper={} parts={} amps={:.4} burnt={} overlay={overlay} done={} job={}",
+            "snap t={:.1} probe={:?} cursor={},{} pick={:?} facing={:?} copper={} parts={} amps={:.4} burnt={} overlay={overlay} grown={:?} done={} job={}",
             self.time,
             self.probe,
             self.cursor.x,
@@ -1322,6 +1643,7 @@ impl App {
             self.board.parts.len(),
             self.supply_amps(),
             self.board.parts.iter().filter(|p| p.burnt).count(),
+            self.grown,
             self.done(),
             self.job.id,
         );
@@ -1342,6 +1664,7 @@ impl App {
         let price = match i {
             _ if on_example => "in the Notebook".to_string(),
             Some(i) if board.parts[i].fixed => "fixed".to_string(),
+            _ if self.sandbox => "free".to_string(),
             _ => self.job.drawer.iter().find(|it| same_part(it.kind, kind)).map(|it| format!("{:.2} kr", it.price)).unwrap_or_default(),
         };
         let now = match i {
@@ -1351,37 +1674,44 @@ impl App {
             }
             None => String::new(),
         };
-        let (side, rule): ([String; 3], (&str, &str)) = match kind {
-            Kind::Resistor { ohms, watts } => ([si(ohms, "Ω"), format!("{watts} W"), render::band_names(ohms)], ("Ohm's law", "I = V / R")),
-            Kind::Lamp { ohms, watts } => ([si(ohms, "Ω") + " hot", format!("{watts} W"), String::new()], ("Glows", "with power")),
+        let readings = match i {
+            Some(i) if !board.parts[i].burnt && !matches!(kind, Kind::TestPoint) => {
+                let r = live.reading(board, i);
+                let mut v = vec![format!("{} across", si(r.volts, "V")), format!("{} through", si(r.amps, "A")), format!("{} power", si(r.watts, "W"))];
+                if matches!(kind, Kind::Resistor { .. } | Kind::Led(_)) {
+                    v.push(format!("{:.0}% of its rating", r.heat * 100.0));
+                }
+                v
+            }
+            _ => Vec::new(),
+        };
+        let side: [String; 3] = match kind {
+            Kind::Resistor { ohms, watts } => [si(ohms, "Ω"), format!("{watts} W"), render::band_names(ohms)],
+            Kind::Lamp { ohms, watts } => [si(ohms, "Ω") + " hot", format!("{watts} W"), String::new()],
             Kind::Battery { volts, r_int } => {
                 let what = match volts {
+                    v if (v - 1.5).abs() < 0.01 => "1 AA cell",
                     v if (v - 4.5).abs() < 0.01 => "3 AA cells",
                     v if (v - 9.0).abs() < 0.01 => "a 9 V block",
                     v if (v - 12.0).abs() < 0.01 => "a van battery",
                     _ => "",
                 };
-                ([si(volts, "V"), format!("{} inside", si(r_int, "Ω")), what.into()], ("Source", "+ pushes out"))
+                [si(volts, "V"), format!("{} inside", si(r_int, "Ω")), what.into()]
             }
-            Kind::Supply { volts, limit } => ([si(volts, "V"), format!("limit {}", si(limit, "A")), String::new()], ("Limits", "its current")),
-            Kind::Switch { closed } => (["slide switch".into(), if closed { "on".into() } else { "off".into() }, String::new()], ("Off", "breaks the loop")),
-            Kind::Button { held } => (["push button".into(), if held { "held".into() } else { "up".into() }, String::new()], ("Momentary", "while held")),
-            Kind::Led(c) => ([c.name().into(), "about 2 V".into(), "30 mA max".into()], ("Polarised", "long leg to +")),
-            Kind::Capacitor { farads } => ([si(farads, "F"), String::new(), String::new()], ("Stores", "charge")),
-            Kind::TestPoint => (["test point".into(), String::new(), String::new()], ("Measures", "volts here")),
+            Kind::Supply { volts, limit } => [si(volts, "V"), format!("limit {}", si(limit, "A")), String::new()],
+            Kind::Switch { closed } => ["slide switch".into(), if closed { "on".into() } else { "off".into() }, String::new()],
+            Kind::Button { held } => ["push button".into(), if held { "held".into() } else { "up".into() }, String::new()],
+            Kind::Led(c) => [c.name().into(), format!("about {:.1} V", c.vf()), "30 mA max".into()],
+            Kind::Capacitor { farads } => [si(farads, "F"), String::new(), String::new()],
+            Kind::TestPoint => ["test point".into(), String::new(), String::new()],
+            Kind::Fuse { amps } => [format!("{} fast", si(amps, "A")), "carries its rating".into(), String::new()],
+            Kind::Ldr { lux } => [light_name(lux).into(), format!("{lux} lux"), si(kind.sensor_ohms().unwrap(), "Ω")],
+            Kind::Ntc { celsius } => [temp_name(celsius).into(), format!("{celsius} °C"), si(kind.sensor_ohms().unwrap(), "Ω")],
+            Kind::Pot { ohms, turn } => [si(ohms, "Ω"), format!("turned {:.0}%", turn * 100.0), String::new()],
         };
-        let noun = match kind {
-            Kind::Resistor { .. } => "Resistor",
-            Kind::Lamp { .. } => "Lamp",
-            Kind::Battery { .. } => "Battery",
-            Kind::Supply { .. } => "Supply",
-            Kind::Switch { .. } => "Switch",
-            Kind::Button { .. } => "Button",
-            Kind::Led(_) => "LED",
-            Kind::Capacitor { .. } => "Capacitor",
-            Kind::TestPoint => "Test point",
-        };
-        Some(Card { name: format!("{noun} {label}"), kind, price, side, now, rule: (rule.0.into(), rule.1.into()) })
+        let f = part_facts(kind);
+        let rules = f.rules.iter().map(|(k, r)| (k.to_string(), r.to_string())).collect();
+        Some(Card { name: format!("{} {label}", f.noun), kind, price, side, now, rules, readings, why: f.why.into() })
     }
 
     fn slot_views(&self) -> Vec<Slot> {
@@ -1391,17 +1721,33 @@ impl App {
                 Some(n) => format!("x{n}"),
                 None => "any".into(),
             };
-            v.push(Slot { name: part_name(it.kind), count, price: format!("{:.2} kr", it.price), kind: Some(it.kind) });
+            let price = if it.price > 0.0 { format!("{:.2} kr", it.price) } else { String::new() };
+            v.push(Slot { name: part_name(it.kind), count, price, kind: Some(it.kind) });
         }
         v
     }
 
+    /// The ledger as the title bar shows it.
+    fn ledger_line(&self) -> String {
+        format!("ledger {:.2} kr", self.ledger)
+    }
+
     pub fn draw(&self, buf: &mut Buffer) {
+        self.draw_screen(buf);
+        if let Some(scroll) = self.help
+            && self.area.width >= render::MIN_W
+            && self.area.height >= render::MIN_H
+        {
+            render::help(buf, self.area, scroll);
+        }
+    }
+
+    fn draw_screen(&self, buf: &mut Buffer) {
         let area = self.area;
         if self.screen == Screen::Title {
             let line = format!("ledger {:.2} kr", self.ledger);
             let shelf = self.shelf_items();
-            render::title(buf, area, &self.menu().into_iter().map(|m| m.1).collect::<Vec<_>>(), self.title_sel, &line, &shelf, self.shelf_hover, self.time);
+            render::title(buf, area, &self.menu().into_iter().map(|m| m.1).collect::<Vec<_>>(), self.title_sel, &line, self.audio.muted, &shelf, self.shelf_page(), self.shelf_hover, self.time);
             return;
         }
         let Some(l) = self.layout() else {
@@ -1470,24 +1816,32 @@ impl App {
         let edge = self.resizing.or(self.hover_edge);
         let hints = if edge.is_some() {
             "drag this edge to resize the panels · right-click it to put it back".to_string()
+        } else if let Some(g) = self.hover_title {
+            let title = g.title().to_lowercase();
+            if self.grown == Some(g) {
+                format!("click to put the {title} back · or {} · or Esc", g.key())
+            } else {
+                format!("click to enlarge the {title} · or {} · the board stays put", g.key())
+            }
         } else if self.pick == Pick::Eraser {
             "eraser: click or drag to remove · space erases at the cursor · Esc or ERASE puts it down".to_string()
         } else if self.copper_mode {
             "arrows lay copper · c stops laying · x erases · Esc stops".to_string()
+        } else if let Some(g) = self.grown {
+            format!("{} or a click on its title puts the {} back · Esc too · i v o g enlarge a panel", g.key(), g.title().to_lowercase())
         } else {
             "arrows move · shift+arrows copper · space place · r rotate · x erase · e flip · t test · d drawers".to_string()
         };
         let d = DeskView {
             title: format!("{} · {}", self.job.name, self.job.customer),
             ledger: format!("{:.2} kr", self.ledger),
-            inbox: self
-                .jobs
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| self.unlocked(i))
-                .map(|(i, j)| (j.name.clone(), i == self.current, self.marks(i)))
-                .collect(),
-            sealed: (0..self.jobs.len()).filter(|&i| !self.unlocked(i)).count(),
+            // The sandbox's inbox is only its note.
+            inbox: if self.sandbox {
+                Vec::new()
+            } else {
+                self.jobs.iter().enumerate().filter(|&(i, _)| self.unlocked(i)).map(|(i, j)| (j.name.clone(), i == self.current, self.marks(i))).collect()
+            },
+            sealed: if self.sandbox { 0 } else { (0..self.jobs.len()).filter(|&i| !self.unlocked(i)).count() },
             customer: self.job.customer.clone(),
             note: {
                 let mut note = self.job.note.clone();
@@ -1498,8 +1852,8 @@ impl App {
                 note
             },
             spec,
-            goals: self.goals(self.current, None).into_iter().skip(1).collect(),
-            works: self.marks(self.current)[0],
+            goals: if self.sandbox { Vec::new() } else { self.goals(self.current, None).into_iter().skip(1).collect() },
+            works: !self.sandbox && self.marks(self.current)[0],
             slots: self.slot_views(),
             pick: self.slot_index(),
             copper_mode: self.copper_mode,
@@ -1522,10 +1876,14 @@ impl App {
                 let example = self.example.as_ref().filter(|(i, _, _)| i == page).map(|(_, b, live)| {
                     let flow = live.copper_currents(b);
                     let readings = (0..b.parts.len())
-                        .filter(|&i| b.parts[i].kind.pins() == 2 && !b.parts[i].kind.is_source())
+                        .filter(|&i| !b.parts[i].kind.is_source())
                         .map(|i| {
                             let r = live.reading(b, i);
-                            format!("{} {} {}", b.parts[i].label, si(r.volts, "V"), si(r.amps, "A"))
+                            // A test point reads volts from minus; a pot, across its ends.
+                            match b.parts[i].kind {
+                                Kind::TestPoint => format!("{} {}", b.parts[i].label, si(r.volts, "V")),
+                                _ => format!("{} {} {}", b.parts[i].label, si(r.volts, "V"), si(r.amps, "A")),
+                            }
                         })
                         .collect::<Vec<_>>();
                     (b, live, flow, readings)
@@ -1533,11 +1891,143 @@ impl App {
                 render::book(buf, &l, &titles, *page, &self.pages[*page], *scroll, example.as_ref().map(|(b, live, flow, r)| (*b, *live, flow.as_slice(), r.as_slice())), self.time);
             }
             Overlay::Report(r) => render::report(buf, &l, r),
+            Overlay::Binder { sel, scroll } => render::binder(buf, &l, &self.binder_entries(), *sel, *scroll),
         }
     }
 
     fn overlay_is_none(&self) -> bool {
         matches!(self.overlay, Overlay::None)
+    }
+}
+
+/// What a kind of part is, for its datasheet card and its page in the binder.
+pub struct Facts {
+    pub noun: &'static str,
+    /// Keywords and their reminders.
+    pub rules: &'static [(&'static str, &'static str)],
+    /// Why it behaves as it does, in plain words.
+    pub why: &'static str,
+    /// The old master's line about it.
+    pub flavour: &'static str,
+}
+
+pub fn part_facts(kind: Kind) -> Facts {
+    let (noun, rules, why, flavour): (_, &'static [(&'static str, &'static str)], _, _) = match kind {
+        Kind::Resistor { .. } => (
+            "Resistor",
+            &[("Ohm's law", "I = V / R"), ("Power", "P = V x I, all of it heat"), ("Rated", "past its watts it smokes, then burns open")],
+            "It lets current through in proportion to the voltage across it, and turns the energy into heat. The colour bands give its value.",
+            "The quiet one in every circuit. Read its bands before you trust it.",
+        ),
+        Kind::Lamp { .. } => (
+            "Lamp",
+            &[("Glows", "with power"), ("Filament", "a thin wire heated white-hot")],
+            "Its filament's resistance rises as it heats. Here it is taken at its hot value, the one it works at.",
+            "Old, hot and honest: if it glows, current flows.",
+        ),
+        Kind::Battery { .. } => (
+            "Battery",
+            &[("Source", "+ pushes out"), ("Inside", "its own resistance: the harder it works, the lower its voltage")],
+            "Chemistry keeps one terminal at a higher voltage than the other. The resistance inside is why a short gets hot rather than drawing endless current.",
+            "Fresh it reads a little high, tired a little low. Build for both.",
+        ),
+        Kind::Supply { .. } => (
+            "Supply",
+            &[("Limits", "its current"), ("Two modes", "holds its voltage until the limit, then holds the current instead")],
+            "A bench supply: a short only draws the limit, so a mistake is a lesson rather than smoke.",
+            "An apprentice's best friend. It would rather hold back than burn.",
+        ),
+        Kind::Switch { .. } => (
+            "Switch",
+            &[("Off", "breaks the loop"), ("On", "closes it, as good as copper")],
+            "Two contacts held together or apart. Current needs the whole loop closed.",
+            "Off is a gap in the loop, and a gap is all it takes.",
+        ),
+        Kind::Button { .. } => (
+            "Button",
+            &[("Momentary", "while held"), ("Springs back", "open again when let go")],
+            "A spring holds its contacts apart until a finger presses them together.",
+            "On only while somebody's finger says so.",
+        ),
+        Kind::Led(_) => (
+            "LED",
+            &[("Polarised", "long leg to +"), ("Forward voltage", "dark below it, lit above it"), ("Needs a resistor", "nothing else limits its current")],
+            "A diode that gives light. Past its forward voltage the current climbs steeply, so a little too much push is far too much current. A resistor in series sets it.",
+            "Without its resistor, a very short-lived light.",
+        ),
+        Kind::Capacitor { .. } => (
+            "Capacitor",
+            &[("Stores", "charge"), ("Time", "through R, 63% charged after R x C seconds")],
+            "Two plates with an insulator between. Current flows only while the voltage across it changes.",
+            "A bucket for charge. Mind which way round the big ones go.",
+        ),
+        Kind::TestPoint => (
+            "Test point",
+            &[("Measures", "volts here")],
+            "A place for the bench's probe. It carries no current and changes nothing.",
+            "Where the customer's meter goes.",
+        ),
+        Kind::Fuse { .. } => (
+            "Fuse",
+            &[("Carries", "its rating, and half again for an hour or more"), ("Opens", "past twice its rating: at 4 times within 0.3 s, on a short in milliseconds"), ("Mend", "puts a new one in")],
+            "A thin wire that melts when too much current heats it. It is the weakest link on purpose, so the wiring isn't.",
+            "Pick the smallest that holds the load. Bigger protects nothing.",
+        ),
+        Kind::Ldr { .. } => (
+            "Light sensor",
+            &[("Light", "lowers its resistance: about 15 kΩ in a dim room, 600 Ω in daylight"), ("Dark", "a megohm or more"), ("Operate", "e or a click changes the light on it")],
+            "A cadmium sulphide cell: light frees charges in it, and the more light, the more of them carry current.",
+            "On its own it measures nothing. Put it in a divider.",
+        ),
+        Kind::Ntc { .. } => (
+            "Thermistor",
+            &[("Warmth", "lowers its resistance: 10 kΩ at 25 °C, about 27 kΩ in a fridge"), ("Operate", "e or a click changes its temperature")],
+            "NTC: negative temperature coefficient. Heat frees charges in its ceramic, so it conducts better as it warms.",
+            "A thermometer with no numbers on it until you build them.",
+        ),
+        Kind::Pot { .. } => (
+            "Potentiometer",
+            &[("Three legs", "the two ends are the whole track, the middle leg the wiper"), ("Divider", "ends across the supply: the wiper gives anything between"), ("Variable", "one end and the wiper: a resistor you can turn"), ("Turn", "the wheel or e")],
+            "A resistive track with a contact sliding along it: the wiper splits the track into two resistors that always add up to the whole.",
+            "Turn it all the way before you trust it. Both ends.",
+        ),
+    };
+    Facts { noun, rules, why, flavour }
+}
+
+/// What operating a sensor or a pot makes of it: an LDR steps up through the light, a
+/// thermistor through the temperatures, a pot a tenth of a turn; each goes round again at the
+/// end.
+fn next_state(k: Kind) -> Kind {
+    match k {
+        Kind::Ldr { lux } => Kind::Ldr { lux: LUX_STEPS.iter().copied().find(|&l| l > lux).unwrap_or(LUX_STEPS[0]) },
+        Kind::Ntc { celsius } => Kind::Ntc { celsius: CELSIUS_STEPS.iter().copied().find(|&c| c > celsius).unwrap_or(CELSIUS_STEPS[0]) },
+        Kind::Pot { ohms, turn } => {
+            let next = ((turn + 0.1) * 10.0).round() / 10.0;
+            Kind::Pot { ohms, turn: if next > 1.0 + 1e-9 { 0.0 } else { next } }
+        }
+        k => k,
+    }
+}
+
+/// How an LDR's light reads in words.
+fn light_name(lux: f64) -> &'static str {
+    match lux {
+        l if l <= 0.0 => "pitch dark",
+        l if l <= 1.0 => "moonlight",
+        l if l <= 10.0 => "a dim room",
+        l if l <= 100.0 => "a lit room",
+        _ => "daylight",
+    }
+}
+
+/// How a thermistor's temperature reads in words.
+fn temp_name(c: f64) -> &'static str {
+    match c {
+        c if c <= -10.0 => "freezer",
+        c if c <= 8.0 => "fridge",
+        c if c <= 25.0 => "room",
+        _ => "a warm hand",
     }
 }
 
@@ -1575,19 +2065,35 @@ fn reading_on(b: &Board, live: &Live, at: Pos) -> (f64, Meter) {
             let r = live.reading(b, i);
             let label = &b.parts[i].label;
             let what = if b.parts[i].kind.pins() == 1 { format!("{label} to ground") } else { format!("across {label}") };
-            let second = if b.parts[i].kind.pins() == 1 { String::new() } else { format!("{} through", si(r.amps, "A")) };
-            (r.amps, Meter { value: r.volts, unit: "V", what, second })
+            let two = b.parts[i].kind.pins() == 2;
+            let second = if two { format!("{} through", si(r.amps, "A")) } else { String::new() };
+            let mut more = Vec::new();
+            if two {
+                more.push(("current".into(), si(r.amps, "A")));
+                more.push(("power".into(), si(r.watts, "W")));
+                if r.amps.abs() > 1e-9 && !b.parts[i].kind.is_source() {
+                    more.push(("V / I".into(), si(r.volts / r.amps, "Ω")));
+                }
+                if matches!(b.parts[i].kind, Kind::Resistor { .. } | Kind::Led(_)) {
+                    more.push(("load".into(), format!("{:.0}% of rating", r.heat * 100.0)));
+                }
+            }
+            if r.burnt {
+                more.push(("state".into(), "burnt out".into()));
+            }
+            (r.amps, Meter { value: r.volts, unit: "V", what, second, more })
         }
         Cell::Trace(m) => {
             let d = Dir::ALL.into_iter().find(|d| m & d.bit() != 0).unwrap_or(Dir::N);
             let v = live.net.net_at(b, at, d).map(|n| live.net_volts(n)).unwrap_or(0.0);
-            (v, Meter { value: v, unit: "V", what: "copper to ground".into(), second: String::new() })
+            let more = vec![("copper".into(), "one voltage".into())];
+            (v, Meter { value: v, unit: "V", what: "copper to ground".into(), second: String::new(), more })
         }
         Cell::Jumper => {
             let v = live.net.net_at(b, at, Dir::E).map(|n| live.net_volts(n)).unwrap_or(0.0);
-            (v, Meter { value: v, unit: "V", what: "jumper, east-west".into(), second: String::new() })
+            (v, Meter { value: v, unit: "V", what: "jumper, east-west".into(), second: String::new(), more: Vec::new() })
         }
-        _ => (0.0, Meter { value: 0.0, unit: "V", what: "nothing here".into(), second: String::new() }),
+        _ => (0.0, Meter { value: 0.0, unit: "V", what: "nothing here".into(), second: String::new(), more: Vec::new() }),
     }
 }
 
@@ -1720,6 +2226,215 @@ mod tests {
         // Right-click puts it back.
         a.act(Act::Down(l2.board.x, y, true));
         assert_eq!(a.splits.left, None);
+    }
+
+    #[test]
+    fn a_grown_panel_takes_its_strip_and_the_board_stays_put() {
+        let mut a = app();
+        for size in [(100, 30), (140, 45)] {
+            a.area = Rect::new(0, 0, size.0, size.1);
+            let plain = a.layout().unwrap();
+            for g in Grow::ALL {
+                a.grown = Some(g);
+                let l = a.layout().unwrap();
+                assert_eq!((l.board, l.inner, l.view, l.origin), (plain.board, plain.inner, plain.view, plain.origin), "{g:?}");
+                let rects = [l.inbox, l.board, l.drawers, l.meter, l.scope, l.card];
+                for (i, r) in rects.iter().enumerate() {
+                    assert!(r.x + r.width <= a.area.width && r.y + r.height < a.area.height, "{g:?} {i} off screen");
+                    for q in &rects[i + 1..] {
+                        assert!(r.intersection(*q).is_empty(), "{g:?}: {r:?} overlaps {q:?}");
+                    }
+                }
+                for s in &l.slots {
+                    assert!(s.y + s.height < l.drawers.y + l.drawers.height, "{g:?}: a drawer slot spills out");
+                }
+            }
+            a.grown = None;
+        }
+        a.area = Rect::new(0, 0, 100, 30);
+        a.grown = Some(Grow::Scope);
+        let l = a.layout().unwrap();
+        assert_eq!(l.scope.width, 100);
+        assert_eq!((l.meter.height, l.card.height), (1, 1));
+        a.grown = Some(Grow::Card);
+        let l = a.layout().unwrap();
+        assert_eq!(l.drawers.height, 1);
+        // Down to the hint row, as the drawers and datasheet reached together.
+        assert_eq!(l.card.y + l.card.height, a.area.height - 1);
+    }
+
+    #[test]
+    fn clicking_a_title_grows_its_panel_and_esc_puts_it_back() {
+        let mut a = app();
+        a.area = Rect::new(0, 0, 100, 30);
+        let l = a.layout().unwrap();
+        a.act(Act::Down(l.scope.x + 4, l.scope.y, false));
+        assert_eq!(a.grown, Some(Grow::Scope));
+        // The folded multimeter's title swaps to it.
+        let l = a.layout().unwrap();
+        assert_eq!(l.meter.height, 1);
+        a.act(Act::Down(l.meter.x + 4, l.meter.y, false));
+        assert_eq!(a.grown, Some(Grow::Meter));
+        // Its own title again puts it back.
+        let l = a.layout().unwrap();
+        a.act(Act::Down(l.meter.x + 4, l.meter.y, false));
+        assert_eq!(a.grown, None);
+        // The key, then Esc: back to the desk as it was, not to the launch page.
+        a.act(Act::Grow(Grow::Card));
+        a.act(Act::Back);
+        assert_eq!(a.grown, None);
+        assert_eq!(a.screen, Screen::Desk);
+        // While a panel is grown the edges can't be dragged.
+        a.act(Act::Grow(Grow::Inbox));
+        let l = a.layout().unwrap();
+        assert_eq!(render::edge_at(&l, l.board.x, l.board.y + 3), None);
+    }
+
+    #[test]
+    fn f1_opens_help_anywhere_and_it_scrolls_to_its_end_and_closes() {
+        let mut a = app();
+        a.area = Rect::new(0, 0, 100, 30);
+        // On the launch page, by its menu item.
+        a.screen = Screen::Title;
+        assert!(a.menu().iter().any(|m| m.0 == MenuItem::Help));
+        a.choose(MenuItem::Help);
+        assert_eq!(a.help, Some(0));
+        a.act(Act::Back);
+        assert_eq!((a.help, a.screen), (None, Screen::Title));
+        // On the desk: keys don't reach the board while it is open.
+        a.screen = Screen::Desk;
+        let cursor = a.cursor;
+        a.act(Act::Help);
+        a.act(Act::Move(Dir::E));
+        assert_eq!(a.cursor, cursor);
+        assert_eq!(a.help, Some(0));
+        // It scrolls as far as there is more, and no further.
+        for _ in 0..200 {
+            a.act(Act::Move(Dir::S));
+        }
+        let end = a.help.unwrap();
+        assert!(end > 0 && !render::help_more(a.area, end));
+        a.act(Act::NextJob);
+        assert_eq!(a.help, Some(end));
+        a.act(Act::PrevJob);
+        assert!(a.help.unwrap() < end);
+        a.act(Act::Help);
+        assert_eq!((a.help, a.screen), (None, Screen::Desk));
+        // The label in the title bar opens it too.
+        let b = render::help_button(a.area, &a.ledger_line());
+        a.act(Act::Down(b.x + 1, b.y, false));
+        assert!(a.help.is_some());
+        // A terminal wide enough shows it all at once.
+        a.area = Rect::new(0, 0, 160, 45);
+        assert!(!render::help_more(a.area, 0));
+    }
+
+    #[test]
+    fn the_sandbox_has_every_kind_of_part_free_and_keeps_both_boards() {
+        let mut a = app();
+        // From the very start, every kind the simulator knows, unlimited and free.
+        a.enter_sandbox();
+        assert!(a.sandbox);
+        let kinds = |a: &App| a.drawer.iter().map(|it| std::mem::discriminant(&it.kind)).collect::<Vec<_>>();
+        for k in [
+            Kind::Resistor { ohms: 1.0, watts: 1.0 },
+            Kind::Lamp { ohms: 1.0, watts: 1.0 },
+            Kind::Battery { volts: 1.0, r_int: 1.0 },
+            Kind::Supply { volts: 1.0, limit: 1.0 },
+            Kind::Switch { closed: false },
+            Kind::Button { held: false },
+            Kind::Led(crate::circuit::Colour::Red),
+            Kind::Capacitor { farads: 1.0 },
+        ] {
+            assert!(kinds(&a).contains(&std::mem::discriminant(&k)), "{k:?} missing");
+        }
+        assert!(a.drawer.iter().all(|it| it.count.is_none() && it.price == 0.0));
+        let names: Vec<String> = a.drawer.iter().map(|it| part_name(it.kind)).collect();
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len(), "two drawers read the same: {names:?}");
+        // Build in it, then leave for the job: each keeps its own board.
+        let p = a.at(3, 3);
+        a.cursor = p;
+        a.pick_slot(1);
+        a.act(Act::Place);
+        assert!(matches!(a.board.cell(p), Cell::Part(_)));
+        a.act(Act::Test);
+        assert!(matches!(a.overlay, Overlay::None), "nothing to test in the sandbox");
+        a.act(Act::NextJob);
+        assert!(a.sandbox, "PgDn doesn't leave the sandbox");
+        a.screen = Screen::Title;
+        a.choose(MenuItem::Continue);
+        assert!(!a.sandbox && a.job.id == "bike-lamp");
+        assert!(!matches!(a.board.cell(p), Cell::Part(_)), "the job's board is its own");
+        a.choose(MenuItem::Sandbox);
+        assert!(matches!(a.board.cell(p), Cell::Part(_)), "the sandbox board came back");
+    }
+
+    #[test]
+    fn the_binder_opens_on_the_part_at_hand_and_collects_as_parts_are_met() {
+        let mut a = app();
+        let got = |a: &App| (0..BINDER.len()).filter(|&i| a.collected(i)).count();
+        // The bike lamp brings a battery, an LED, resistors and a switch.
+        assert_eq!(got(&a), 4);
+        build_bike_lamp(&mut a);
+        let r = a.board.part("R1").unwrap();
+        a.cursor = a.board.parts[r].pos;
+        a.act(Act::Binder);
+        let Overlay::Binder { sel, .. } = a.overlay else { panic!("no binder") };
+        assert_eq!(BINDER[sel], Kind::Resistor { ohms: 220.0, watts: 0.25 });
+        a.act(Act::Move(Dir::S));
+        assert!(matches!(a.overlay, Overlay::Binder { sel: s, .. } if s == sel + 1));
+        a.act(Act::Binder);
+        assert!(matches!(a.overlay, Overlay::None));
+        // A capacitor on the sandbox board collects its card; the porch lamp brings its lamp
+        // and the push button.
+        a.enter_sandbox();
+        let cap = a.drawer.iter().position(|it| matches!(it.kind, Kind::Capacitor { .. })).unwrap();
+        a.cursor = a.at(2, 2);
+        a.pick_slot(cap + 1);
+        a.act(Act::Place);
+        assert_eq!(got(&a), 5);
+        a.solved[0] = true;
+        assert_eq!(got(&a), 7);
+        let cards = a.binder_entries();
+        assert!(cards.iter().filter(|c| c.collected).all(|c| !c.met.is_empty() && !c.flavour.is_empty()));
+    }
+
+    #[test]
+    fn sensors_and_pots_change_when_operated_and_the_wheel_turns_a_pot() {
+        let mut a = app();
+        a.enter_sandbox();
+        let slot = |a: &App, f: &dyn Fn(Kind) -> bool| a.drawer.iter().position(|it| f(it.kind)).unwrap() + 1;
+        let ldr = slot(&a, &|k| matches!(k, Kind::Ldr { .. }));
+        let pot = slot(&a, &|k| matches!(k, Kind::Pot { ohms, .. } if ohms == 10e3));
+        let (p, q) = (a.at(2, 2), a.at(6, 2));
+        a.cursor = p;
+        a.pick_slot(ldr);
+        a.act(Act::Place);
+        a.cursor = q;
+        a.pick_slot(pot);
+        a.act(Act::Place);
+        let kind = |a: &App, at: Pos| match a.board.cell(at) {
+            Cell::Part(i) => a.board.parts[i].kind,
+            _ => panic!("no part"),
+        };
+        a.cursor = p;
+        a.act(Act::Operate);
+        assert_eq!(kind(&a, p), Kind::Ldr { lux: 1000.0 });
+        a.act(Act::Operate);
+        assert_eq!(kind(&a, p), Kind::Ldr { lux: 0.0 }, "round again after daylight");
+        a.cursor = q;
+        a.act(Act::Operate);
+        assert!(matches!(kind(&a, q), Kind::Pot { turn, .. } if (turn - 0.6).abs() < 1e-9));
+        let l = a.layout().unwrap();
+        let (x, y) = (l.origin.0 + ((q.x - l.view.0) as u16) * render::TILE_W + 2, l.origin.1 + ((q.y - l.view.1) as u16) * render::TILE_H + 1);
+        for _ in 0..10 {
+            a.act(Act::Scroll(x, y, true));
+        }
+        assert!(matches!(kind(&a, q), Kind::Pot { turn, .. } if turn == 1.0), "the wheel stops at the end");
+        assert_eq!(a.board.parts.iter().find(|pt| pt.pos == q).unwrap().facing, a.facing, "the wheel turned the knob, not the part");
     }
 
     #[test]
@@ -1879,7 +2594,7 @@ mod tests {
         let mut a = app();
         a.screen = Screen::Title;
         a.solved[0] = true;
-        let slots = render::shelf_slots(a.area, a.jobs.len());
+        let slots = render::shelf_slots(a.area, a.jobs.len(), 0);
         // The porch lamp has arrived (the bike lamp is solved); the doorbells haven't.
         a.act(Act::Down(slots[2].x + 2, slots[2].y, false));
         assert_eq!(a.screen, Screen::Title);

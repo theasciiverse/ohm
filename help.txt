@@ -1,0 +1,70 @@
+# The workshop
+
+Customers leave their gadgets in the INBOX, each with a note and a spec. Build the circuit on the BOARD from the parts in the DRAWERS, then put it on the test bench (t). When every case of the spec passes, the customer pays the fee, less what the parts cost.
+
+The circuit runs while you build. The copper's colour is its voltage, from cold copper at 0 V to warm gold at the top, and a ripple of light runs the way the current flows, faster for more current.
+
+# Ticks
+
+works :: the spec passes
+parts :: the parts cost no more than the old master's
+battery :: the battery lasts at least as long as with his build (only on jobs that drain one)
+
+Ticks once earned stay. A cheaper build later pays the difference against your best.
+
+# Keyboard
+
+arrows :: move the cursor
+shift+arrows :: lay copper as you go
+c :: lay copper with plain arrows; c again stops
+space, Enter :: place the part in hand
+r :: turn the part under the cursor, or the one in hand
+x, Del :: erase at the cursor
+e :: flip a switch, press a button, change the light on an LDR or the warmth of a thermistor, turn a pot, make a crossing a jumper and back
+t :: the test bench
+0-9 :: pick a drawer (0 is copper)
+Tab, shift+Tab :: the next or previous drawer
+d :: every drawer, as cards
+p :: clip the scope's probe on at the cursor, or take it off
+f :: mend burnt parts
+u, Ctrl+Z :: undo
+Ctrl+Y :: redo
+n :: the Master's Notebook
+b :: the card binder, open at the part under the cursor
+i v o g :: enlarge the inbox, multimeter, scope or datasheet
+PgUp, PgDn :: the previous or next job
+m :: sound on or off
+Esc :: put down what's in hand, put back a panel, then the launch page
+Ctrl+Q :: quit
+F1, ? :: this help
+
+# Mouse
+
+The cursor follows the mouse, so any key acts on the tile under the pointer.
+
+click :: place the part in hand, flip a switch, change a sensor or a pot, make a crossing a jumper
+drag :: lay copper
+right-click, right-drag :: erase
+hold :: a push button is pressed while you hold it
+wheel :: turns a pot's knob, or turns a part round; picks a drawer over the drawers
+middle click :: clip the probe on
+middle drag :: move round the workbench
+a title :: enlarge that panel, click again to put it back
+DRAWERS title :: every drawer, as cards
+BINDER :: the card binder, in the datasheet's border
+a panel edge :: drag to resize; right-click puts it back
+the buttons :: TEST, ERASE, UNDO, ROTATE, MEND and PROBE under the board
+
+# Measuring
+
+The MULTIMETER reads what the cursor is on: the voltage across a part and the current through it, or the voltage of a copper trace. Every voltage is measured from the battery's minus terminal.
+
+The SCOPE draws the same reading over time. Clip its probe on (p) and it keeps watching that spot, marked with a red P, wherever the cursor goes.
+
+The DATASHEET is the card of the part under the cursor, or of the part in hand.
+
+# When things burn
+
+Too much current burns a resistor or an LED, just as on a real bench. Nothing is lost: f or MEND puts the burnt parts back, and the test bench's hints say what went wrong.
+
+The Master's Notebook (n) explains the electronics behind every job, with example circuits you can switch and measure.

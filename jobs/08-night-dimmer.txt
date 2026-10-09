@@ -1,0 +1,35 @@
+# A pot as a variable resistor, with a fixed resistor to keep the LED safe at the bright end.
+# 150 or 220 ohm with the 10k pot pass; no resistor burns the LED turned up; the 1k pot can't
+# turn it down far enough (about 2.3 mA).
+name: Night light
+customer: Elsa, 8
+fee: 45
+note: My doll's house lamp is too bright at bedtime. Can it have a knob, bright for playing and nearly off for sleeping?
+battery: 2850
+book: potentiometers
+part: B battery 4.5 0.45 N
+part: L led red N
+drawer: pot 1k x1 0.60
+drawer: pot 10k x1 0.80
+drawer: resistor 100 0.25 x1 0.10
+drawer: resistor 150 0.25 x1 0.10
+drawer: resistor 220 0.25 x1 0.10
+case: turned up (RV1 at 1): LED 10-20 mA | set RV1 1 | lit LED1 10m 20m
+case: turned down (RV1 at 0): LED 0.1-2 mA | set RV1 0 | lit LED1 0.1m 2m
+life: turned up (RV1 at 1): LED 10-20 mA
+hint-battery: The bigger the fixed resistor, the less the lamp draws turned up, as long as it stays in spec.
+master-part: P pot 10k 0.5 W
+master-part: R resistor 220 0.25 W
+master: .┌─┐......
+master: .│.P─R──┐.
+master: .B......L.
+master: .└──────┘.
+master: ..........
+master: ..........
+grid:
+..........
+..........
+.B......L.
+..........
+..........
+..........

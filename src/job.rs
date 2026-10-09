@@ -37,7 +37,16 @@ pub const JOBS: &[(&str, &str)] = &[
     ("dolls-house", include_str!("../jobs/04-dolls-house.txt")),
     ("christmas-star", include_str!("../jobs/05-christmas-star.txt")),
     ("cafe-sign", include_str!("../jobs/06-cafe-sign.txt")),
+    ("boat-gauge", include_str!("../jobs/07-boat-gauge.txt")),
+    ("night-dimmer", include_str!("../jobs/08-night-dimmer.txt")),
+    ("fuel-gauge", include_str!("../jobs/09-fuel-gauge.txt")),
+    ("light-meter", include_str!("../jobs/10-light-meter.txt")),
+    ("fridge-gauge", include_str!("../jobs/11-fridge-gauge.txt")),
+    ("trailer-fuse", include_str!("../jobs/12-trailer-fuse.txt")),
 ];
+
+/// The sandbox's id, for the save file.
+pub const SANDBOX: &str = "sandbox";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
@@ -101,6 +110,10 @@ pub fn same_part(a: Kind, b: Kind) -> bool {
     let norm = |k: Kind| match k {
         Kind::Switch { .. } => Kind::Switch { closed: true },
         Kind::Button { .. } => Kind::Button { held: false },
+        // A sensor's light or warmth and a pot's turn are where it is, not what it is.
+        Kind::Ldr { .. } => Kind::Ldr { lux: 0.0 },
+        Kind::Ntc { .. } => Kind::Ntc { celsius: 0.0 },
+        Kind::Pot { ohms, .. } => Kind::Pot { ohms, turn: 0.0 },
         k => k,
     };
     norm(a) == norm(b)
@@ -144,6 +157,20 @@ pub fn kind(words: &[&str]) -> Result<(Kind, usize), String> {
         Some("button") => (Kind::Button { held: false }, 1),
         Some("cap") => (Kind::Capacitor { farads: arg(1)? }, 2),
         Some("testpoint") => (Kind::TestPoint, 1),
+        Some("fuse") => (Kind::Fuse { amps: arg(1)? }, 2),
+        // Sensors and pots take their state as an optional last word.
+        Some("ldr") => match words.get(1).map(|w| number(w)) {
+            Some(Ok(lux)) => (Kind::Ldr { lux }, 2),
+            _ => (Kind::Ldr { lux: 10.0 }, 1),
+        },
+        Some("ntc") => match words.get(1).map(|w| number(w)) {
+            Some(Ok(celsius)) => (Kind::Ntc { celsius }, 2),
+            _ => (Kind::Ntc { celsius: 20.0 }, 1),
+        },
+        Some("pot") => match words.get(2).map(|w| number(w)) {
+            Some(Ok(turn)) => (Kind::Pot { ohms: arg(1)?, turn }, 3),
+            _ => (Kind::Pot { ohms: arg(1)?, turn: 0.5 }, 2),
+        },
         Some("led") => {
             let c = match words.get(1).copied() {
                 Some("red") => Colour::Red,
@@ -170,6 +197,10 @@ pub fn kind_words(k: Kind) -> String {
         Kind::Capacitor { farads } => format!("cap {farads}"),
         Kind::TestPoint => "testpoint".into(),
         Kind::Led(c) => format!("led {}", c.name()),
+        Kind::Fuse { amps } => format!("fuse {amps}"),
+        Kind::Ldr { lux } => format!("ldr {lux}"),
+        Kind::Ntc { celsius } => format!("ntc {celsius}"),
+        Kind::Pot { ohms, turn } => format!("pot {ohms} {turn}"),
     }
 }
 
@@ -201,13 +232,24 @@ fn case(line: &str) -> Result<Case, String> {
         let w: Vec<&str> = p.split_whitespace().collect();
         match w.as_slice() {
             ["battery", v] => c.battery = Some(number(v)?),
-            ["set", label, state] => c.set.push((label.to_string(), *state == "on")),
+            ["set", label, state] => {
+                let v = match *state {
+                    "on" => 1.0,
+                    "off" => 0.0,
+                    n => number(n)?,
+                };
+                c.set.push((label.to_string(), v));
+            }
             ["lit", label, min, max] => {
                 c.check = Check::Lit { part: label.to_string(), min: number(min)?, max: number(max)? };
                 checked = true;
             }
             ["dark", label] => {
                 c.check = Check::Dark { part: label.to_string() };
+                checked = true;
+            }
+            ["blown", label] => {
+                c.check = Check::Blown { part: label.to_string() };
                 checked = true;
             }
             ["volts", label, min, max] => {
@@ -357,6 +399,55 @@ impl Job {
         }
     }
 
+    /// The sandbox: no customer, no spec and no fee, a bare stretch of workbench, and as many
+    /// as you like of every kind of part, free.
+    pub fn sandbox() -> Job {
+        let r = |ohms: f64, watts: f64| Kind::Resistor { ohms, watts };
+        let mut drawer = vec![
+            // Batteries: AA cells at 0.15 ohm each (Energizer E91), the 9 V block and the van
+            // battery as the jobs have them; a bench supply.
+            Kind::Battery { volts: 1.5, r_int: 0.15 },
+            Kind::Battery { volts: 4.5, r_int: 0.45 },
+            Kind::Battery { volts: 9.0, r_int: 1.5 },
+            Kind::Battery { volts: 12.0, r_int: 0.05 },
+            Kind::Supply { volts: 5.0, limit: 0.1 },
+            Kind::Led(Colour::Red),
+            Kind::Led(Colour::Yellow),
+            Kind::Led(Colour::Green),
+            Kind::Led(Colour::Blue),
+            Kind::Lamp { ohms: 15.0, watts: 1.35 },
+            Kind::Lamp { ohms: 20.0, watts: 1.8 },
+        ];
+        // E12 values across the useful decades, and the café sign's power resistors.
+        for ohms in [10.0, 22.0, 47.0, 100.0, 150.0, 220.0, 330.0, 470.0, 1e3, 2.2e3, 4.7e3, 10e3, 15e3, 22e3, 47e3, 100e3] {
+            drawer.push(r(ohms, 0.25));
+        }
+        drawer.extend([r(100.0, 1.0), r(22.0, 2.0)]);
+        drawer.extend([100e-9, 10e-6, 100e-6, 1000e-6].map(|farads| Kind::Capacitor { farads }));
+        drawer.extend([Kind::Ldr { lux: 100.0 }, Kind::Ntc { celsius: 20.0 }, Kind::Pot { ohms: 10e3, turn: 0.5 }, Kind::Pot { ohms: 1e3, turn: 0.5 }]);
+        drawer.extend([0.5, 2.0, 5.0].map(|amps| Kind::Fuse { amps }));
+        drawer.extend([Kind::Switch { closed: false }, Kind::Button { held: false }]);
+        Job {
+            id: SANDBOX.into(),
+            name: "Sandbox".into(),
+            customer: "Your own bench".into(),
+            fee: 0.0,
+            note: vec![
+                "No customer, no spec and no bill: the workbench, and as many as you like of every part in the shop, free.".into(),
+                "Build anything, measure it, burn it and mend it.".into(),
+            ],
+            battery_mah: 0.0,
+            book: Vec::new(),
+            board: Board::new(16, 9),
+            drawer: drawer.into_iter().map(|kind| Item { kind, count: None, price: 0.0 }).collect(),
+            cases: Vec::new(),
+            life: None,
+            master: Board::new(16, 9),
+            hint_parts: None,
+            hint_battery: None,
+        }
+    }
+
     pub fn load(i: usize) -> Job {
         let (id, text) = JOBS[i];
         Job::parse(id, text).unwrap_or_else(|e| panic!("job {id} doesn't parse: {e}"))
@@ -455,6 +546,107 @@ mod tests {
     const LAMP: Kind = Kind::Lamp { ohms: 15.0, watts: 1.35 };
     const BUTTON: Kind = Kind::Button { held: false };
     const R: fn(f64) -> Kind = |ohms| Kind::Resistor { ohms, watts: 0.25 };
+
+    const BAT12: Kind = Kind::Battery { volts: 12.0, r_int: 0.05 };
+    const TP: Kind = Kind::TestPoint;
+
+    /// A divider on the chapter 2 layout: `top` along the top, `bottom` down from the middle,
+    /// the test point off the middle; `flip` swaps them.
+    fn divider(job: usize, bat: Kind, top: Kind, bottom: Kind) -> Vec<bool> {
+        let rows = ["..........", ".┌─R─┐....", ".B...├─T..", ".│...S....", ".└───┘....", ".........."];
+        solve(job, &rows, &[('B', bat, Dir::N), ('R', top, Dir::W), ('S', bottom, Dir::N), ('T', TP, Dir::W)])
+    }
+
+    #[test]
+    fn boat_gauge_wants_a_third_from_e12_values() {
+        assert_eq!(divider(6, BAT12, R(4700.0), R(2200.0)), [true, true]);
+        assert_eq!(divider(6, BAT12, R(1000.0), R(470.0)), [true, true]);
+        // 2.2k over 1k is 0.3125: just under on both batteries.
+        assert_eq!(divider(6, BAT12, R(2200.0), R(1000.0)), [false, false]);
+        // The small pair works but drains the battery: no battery tick.
+        let job = Job::load(6);
+        let rows = ["..........", ".┌─R─┐....", ".B...├─T..", ".│...S....", ".└───┘....", ".........."];
+        let rows: Vec<String> = rows.iter().map(|r| r.replace('.', " ")).collect();
+        let refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+        let small = crate::circuit::Board::parse(&refs, &[('B', BAT12, Dir::N), ('R', R(1000.0), Dir::W), ('S', R(470.0), Dir::N), ('T', TP, Dir::W)]).unwrap();
+        assert!(!job.ticks(true, job.score(&small)).frugal);
+    }
+
+    #[test]
+    fn night_light_wants_a_10k_pot_and_a_fixed_resistor() {
+        let rows = [".┌─┐......", ".│.P─R──┐.", ".B......L.", ".└──────┘.", "..........", ".........."];
+        let red = Kind::Led(crate::circuit::Colour::Red);
+        let with = |pot: f64, r: Kind, facing: Dir| solve(7, &rows, &[('B', BAT45, Dir::N), ('L', red, Dir::N), ('P', Kind::Pot { ohms: pot, turn: 0.5 }, facing), ('R', r, Dir::W)]);
+        assert_eq!(with(10e3, R(220.0), Dir::W), [true, true]);
+        assert_eq!(with(10e3, R(150.0), Dir::W), [true, true]);
+        // 100 ohm: too bright turned up. The 1k pot can't turn it down far enough.
+        assert_eq!(with(10e3, R(100.0), Dir::W), [false, true]);
+        assert_eq!(with(1e3, R(220.0), Dir::W), [true, false]);
+        // No fixed resistor: a wire where R was burns the LED turned up.
+        let bare = [".┌─┐......", ".│.P────┐.", ".B......L.", ".└──────┘.", "..........", ".........."];
+        assert_eq!(solve(7, &bare, &[('B', BAT45, Dir::N), ('L', red, Dir::N), ('P', Kind::Pot { ohms: 10e3, turn: 0.5 }, Dir::W)]), [false, true]);
+    }
+
+    #[test]
+    fn fuel_gauge_wants_15k_above_the_pot_as_a_divider() {
+        let rows = ["..........", ".┌─R─┐....", ".B...P─T..", ".│...│....", ".└───┘....", ".........."];
+        let pot = Kind::Pot { ohms: 10e3, turn: 0.0 };
+        let with = |top: f64| solve(8, &rows, &[('B', BAT12, Dir::N), ('R', R(top), Dir::W), ('P', pot, Dir::N), ('T', TP, Dir::W)]);
+        assert_eq!(with(15e3), [true, true, true]);
+        // 10k: 6 V full, off the gauge. 22k: 3.75 V full, the needle never gets there.
+        assert_eq!(with(10e3)[..2], [false, false]);
+        assert_eq!(with(22e3)[..2], [false, false]);
+        // The pot as a plain variable resistor, its far end left free: the reading never moves.
+        let rheostat = ["..........", ".┌─R─┐....", ".B...P─T..", ".│........", ".└────────", ".........."];
+        let r = solve(8, &rheostat, &[('B', BAT12, Dir::N), ('R', R(15e3), Dir::W), ('P', pot, Dir::N), ('T', TP, Dir::W)]);
+        assert!(r.iter().any(|ok| !ok), "{r:?}");
+    }
+
+    #[test]
+    fn light_meter_wants_the_ldr_on_top_and_a_resistor_near_its_middle() {
+        let ldr = Kind::Ldr { lux: 100.0 };
+        assert_eq!(divider(9, BAT45, ldr, R(4700.0)), [true, true]);
+        assert_eq!(divider(9, BAT45, ldr, R(2200.0)), [true, true]);
+        assert_eq!(divider(9, BAT45, ldr, R(1000.0)), [false, true]);
+        assert_eq!(divider(9, BAT45, ldr, R(10e3)), [true, false]);
+        // Upside down: dark reads high.
+        assert_eq!(divider(9, BAT45, R(4700.0), ldr), [false, false]);
+    }
+
+    #[test]
+    fn fridge_gauge_wants_the_thermistor_on_top_over_22k() {
+        let ntc = Kind::Ntc { celsius: 20.0 };
+        assert_eq!(divider(10, BAT45, ntc, R(22e3)), [true, true]);
+        assert_eq!(divider(10, BAT45, ntc, R(10e3))[0], false);
+        assert_eq!(divider(10, BAT45, ntc, R(47e3))[0], false);
+        assert_eq!(divider(10, BAT45, R(22e3), ntc), [false, false]);
+    }
+
+    #[test]
+    fn trailer_light_wants_a_2_amp_fuse() {
+        let rows = ["..........", ".┌─F─┬──┐.", ".B...K..X.", ".│...Z..│.", ".└───┴──┘.", ".........."];
+        let with = |amps: f64| {
+            solve(
+                11,
+                &rows,
+                &[
+                    ('B', BAT12, Dir::N),
+                    ('F', Kind::Fuse { amps }, Dir::W),
+                    ('K', BUTTON, Dir::N),
+                    ('Z', Kind::Resistor { ohms: 2.7, watts: 100.0 }, Dir::N),
+                    ('X', Kind::Lamp { ohms: 8.0, watts: 18.0 }, Dir::N),
+                ],
+            )
+        };
+        assert_eq!(with(2.0), [true, true]);
+        // 500 mA blows with the lamp alone; 5 A sits through the fault.
+        assert_eq!(with(0.5), [false, true]);
+        assert_eq!(with(5.0), [true, false]);
+        // No fuse at all: a wire where F was. The fault isn't cut off.
+        let bare = ["..........", ".┌───┬──┐.", ".B...K..X.", ".│...Z..│.", ".└───┴──┘.", ".........."];
+        let r = solve(11, &bare, &[('B', BAT12, Dir::N), ('K', BUTTON, Dir::N), ('Z', Kind::Resistor { ohms: 2.7, watts: 100.0 }, Dir::N), ('X', Kind::Lamp { ohms: 8.0, watts: 18.0 }, Dir::N)]);
+        assert_eq!(r, [true, false]);
+    }
 
     #[test]
     fn porch_lamp_wants_a_button() {

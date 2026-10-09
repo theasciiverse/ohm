@@ -28,6 +28,10 @@ pub const PAGES: &[(&str, &str)] = &[
     ("colour-code", include_str!("../book/08-colour-code.txt")),
     ("batteries", include_str!("../book/09-batteries.txt")),
     ("measuring", include_str!("../book/10-measuring.txt")),
+    ("dividers", include_str!("../book/11-dividers.txt")),
+    ("potentiometers", include_str!("../book/12-potentiometers.txt")),
+    ("sensors", include_str!("../book/13-sensors.txt")),
+    ("fuses", include_str!("../book/14-fuses.txt")),
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -154,5 +158,23 @@ mod tests {
         live.sim.solve_dc().unwrap();
         let r = live.reading(&b, b.part("R1").unwrap());
         assert!((r.volts - 6.28).abs() < 0.1 && (r.watts - 1.8).abs() < 0.2, "{r:?}");
+        // The pages with a test point read what they say, and the fuse page's lamp draws its
+        // 1.5 A through the fuse.
+        let reads = |id: &str, label: &str| {
+            let p = Page::all().into_iter().find(|p| p.id == id).unwrap();
+            let b = p.board.unwrap();
+            let mut live = Live::build(&b);
+            live.sim.solve_dc().unwrap();
+            live.reading(&b, b.part(label).unwrap())
+        };
+        // Dividers: 2.2k over 1k from 4.5 V, 4.5 x 1 / 3.2 = 1.41 V.
+        assert!((reads("dividers", "TP1").volts - 1.41).abs() < 0.01);
+        // Potentiometers: half way round, half the battery.
+        assert!((reads("potentiometers", "TP1").volts - 2.25).abs() < 0.01);
+        // Sensors: the LDR at 100 lux (about 3 kOhm) over 4.7k reads above half.
+        let v = reads("sensors", "TP1").volts;
+        assert!(v > 2.5 && v < 3.0, "{v}");
+        let i = reads("fuses", "LP1").amps;
+        assert!((i - 1.47).abs() < 0.02, "{i}");
     }
 }

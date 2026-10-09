@@ -4,8 +4,9 @@
 //!   cargo run --release                          # play (--mute for no sound)
 //!   RUST_LOG=debug cargo run --release 2>ohm.log # with a session log
 //!   cargo run --release -- --bench               # the printed bench: numbers and hints as text
-//!   cargo run --release -- --shot desk [--demo] [--secs S] [--overlay drawers|report|bookN]
+//!   cargo run --release -- --shot desk [--demo] [--secs S] [--overlay drawers|report|bookN|help|binder]
 //!                                [--cursor X,Y] (a tile of the job's board) [--job N] [--cells]
+//!                                [--grow inbox|multimeter|scope|datasheet] [--sandbox]
 //!   cargo run --release -- --shot title --cells | python3 tools/shot.py title.png
 //!   cargo run --release -- --shot gallery --cells | python3 tools/shot.py gallery.png
 //!   cargo test
@@ -102,11 +103,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> io::Result<()>
 #[allow(clippy::too_many_arguments)]
 fn shot(screen: &str, size: Option<(u16, u16)>, demo: bool, secs: f64, overlay: Option<&str>, cursor: Option<(usize, usize)>, job: Option<usize>, cells: bool) {
     let (w, h) = size.unwrap_or(match screen {
-        "gallery" => (104, 62),
+        "gallery" => (104, 86),
         _ => (100, 30),
     });
     let area = Rect::new(0, 0, w, h);
     let mut buf = Buffer::empty(area);
+    progress::NO_SAVE.store(true, std::sync::atomic::Ordering::Relaxed);
     if screen == "gallery" {
         render::gallery(&mut buf, area);
     } else {
@@ -123,6 +125,9 @@ fn shot(screen: &str, size: Option<(u16, u16)>, demo: bool, secs: f64, overlay: 
             }
             app.open_job(j);
         }
+        if std::env::args().any(|a| a == "--sandbox") {
+            app.enter_sandbox();
+        }
         if demo {
             app::build_bike_lamp(&mut app);
             app.cursor = app.at(8, 2);
@@ -137,9 +142,16 @@ fn shot(screen: &str, size: Option<(u16, u16)>, demo: bool, secs: f64, overlay: 
         if let Some((x, y)) = cursor {
             app.cursor = app.at(x, y);
         }
+        // --grow inbox|multimeter|scope|datasheet grows that panel.
+        let grow = std::env::args().skip_while(|a| a != "--grow").nth(1);
+        if let Some(g) = render::Grow::ALL.into_iter().find(|g| Some(g.title().to_lowercase()) == grow) {
+            app.act(Act::Grow(g));
+        }
         match overlay {
             Some("drawers") => app.act(Act::Drawer),
             Some("report") => app.act(Act::Test),
+            Some("help") => app.act(Act::Help),
+            Some("binder") => app.act(Act::Binder),
             Some(page) if page.starts_with("book") => {
                 app.act(Act::Notebook);
                 for _ in 0..page[4..].parse::<usize>().unwrap_or(0) {

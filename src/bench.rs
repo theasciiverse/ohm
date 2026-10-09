@@ -24,6 +24,8 @@ pub enum Check {
     Dark { part: String },
     /// A test point's voltage is in range.
     Volts { point: String, min: f64, max: f64 },
+    /// A fuse has blown by the end of the case: the fault it is there for was cleared.
+    Blown { part: String },
 }
 
 /// One condition the build must meet: how the bench sets the board up, and what it checks.
@@ -32,8 +34,9 @@ pub struct Case {
     pub name: String,
     /// Every battery set to this voltage (a fresh cell, a tired one).
     pub battery: Option<f64>,
-    /// Switches and buttons by label: closed or held.
-    pub set: Vec<(String, bool)>,
+    /// Parts by label and what they are set to: a switch or button 1 (closed, held) or 0, an
+    /// LDR's lux, a thermistor's °C, a pot's turn from 0 to 1.
+    pub set: Vec<(String, f64)>,
     pub check: Check,
 }
 
@@ -54,13 +57,19 @@ impl Outcome {
 
 pub fn run_case(board: &Board, case: &Case) -> Outcome {
     if let Some((label, _)) = case.set.iter().find(|(l, _)| board.part(l).is_none()) {
-        let what = if label.starts_with("PB") { "a push button" } else { "a switch" };
+        let what = match label.trim_end_matches(|c: char| c.is_ascii_digit()) {
+            "PB" => "a push button",
+            "RV" => "a potentiometer",
+            "LDR" => "a light sensor",
+            "TH" => "a thermistor",
+            _ => "a switch",
+        };
         return Outcome::fail(format!("{label} isn't on the board: this job needs {what}."));
     }
     let b = with_settings(board, case);
     // A check can name several parts joined with `+` (`LED1+LED2`): each must pass.
     let names = match &case.check {
-        Check::Lit { part, .. } | Check::Dark { part } => part,
+        Check::Lit { part, .. } | Check::Dark { part } | Check::Blown { part } => part,
         Check::Volts { point, .. } => point,
     };
     let mut targets = Vec::new();
@@ -75,8 +84,11 @@ pub fn run_case(board: &Board, case: &Case) -> Outcome {
         if live.sim.step(DT).is_err() {
             return Outcome::fail("The circuit can't be solved: two sources are fighting.".into());
         }
-        if let Some(burnt) = b.parts.iter().enumerate().find(|(i, _)| live.reading(&b, *i).burnt) {
-            return Outcome::fail(format!("{} burnt out.", burnt.1.label));
+        // A part burning out fails the case, except the fuse a `blown` check waits for.
+        let expected = |i: usize| matches!(case.check, Check::Blown { .. }) && targets.contains(&i);
+        if let Some(burnt) = b.parts.iter().enumerate().find(|(i, _)| live.reading(&b, *i).burnt && !expected(*i)) {
+            let what = if matches!(burnt.1.kind, Kind::Fuse { .. }) { "blew" } else { "burnt out" };
+            return Outcome::fail(format!("{} {what}.", burnt.1.label));
         }
     }
     let outcomes: Vec<Outcome> = targets.iter().map(|&t| judge(&case.check, &b.parts[t].label, live.reading(&b, t))).collect();
@@ -100,12 +112,16 @@ fn with_settings(board: &Board, case: &Case) -> Board {
                     *volts = v;
                 }
             }
-            Kind::Switch { closed: on } | Kind::Button { held: on } => {
-                if let Some((_, v)) = case.set.iter().find(|(l, _)| *l == part.label) {
-                    *on = *v;
+            kind => {
+                let Some(&(_, v)) = case.set.iter().find(|(l, _)| *l == part.label) else { continue };
+                match kind {
+                    Kind::Switch { closed: on } | Kind::Button { held: on } => *on = v > 0.5,
+                    Kind::Ldr { lux } => *lux = v,
+                    Kind::Ntc { celsius } => *celsius = v,
+                    Kind::Pot { turn, .. } => *turn = v.clamp(0.0, 1.0),
+                    _ => {}
                 }
             }
-            _ => {}
         }
     }
     b
@@ -128,10 +144,11 @@ fn judge(check: &Check, label: &str, r: crate::circuit::Reading) -> Outcome {
     match check {
         Check::Lit { min, max, .. } => {
             let pass = r.amps >= *min && r.amps <= *max;
-            let why = if r.amps < UNLIT {
-                format!("{label} stays dark; it should carry {} to {}.", si(*min, "A"), si(*max, "A"))
-            } else if pass {
+            // A pass reads as one, even glowing below what counts as lit elsewhere.
+            let why = if pass {
                 format!("{label} lit at {}.", si(r.amps, "A"))
+            } else if r.amps < UNLIT {
+                format!("{label} stays dark; it should carry {} to {}.", si(*min, "A"), si(*max, "A"))
             } else {
                 format!("{label} carries {}; this job wants {} to {}.", si(r.amps, "A"), si(*min, "A"), si(*max, "A"))
             };
@@ -150,6 +167,10 @@ fn judge(check: &Check, label: &str, r: crate::circuit::Reading) -> Outcome {
                 format!("{label} reads {}; this job wants {} to {}.", si(r.volts, "V"), si(*min, "V"), si(*max, "V"))
             };
             Outcome { pass, measured: Some(r.volts), why }
+        }
+        Check::Blown { .. } => {
+            let why = if r.burnt { format!("{label} blew and cut the fault off.") } else { format!("{label} held through the fault; it should have blown.") };
+            Outcome { pass: r.burnt, measured: Some(r.amps), why }
         }
     }
 }
@@ -257,6 +278,10 @@ pub fn diagnose(b: &Board) -> Vec<Hint> {
             if net.pin_net[i][0..p.kind.pins()].iter().filter(|&&n| n == net.pin_net[i][pin]).count() > 1 {
                 continue;
             }
+            // A pot used as a variable resistor leaves one end free, rightly.
+            if matches!(p.kind, Kind::Pot { .. }) && pin < 2 {
+                continue;
+            }
             if others(i, pin) == 0 {
                 hints.push(hint(
                     format!("{} is only half connected.", p.label),
@@ -315,9 +340,14 @@ pub fn diagnose(b: &Board) -> Vec<Hint> {
                     format!("{} had to turn {} into heat; it's rated for {}.", p.label, si(peak[i], "W"), si(watts, "W")),
                     format!("Use a larger value for {}, or a part rated for more power.", p.label),
                 ),
+                Kind::Fuse { amps } => (
+                    format!("More than {} flowed through {}, so it melted: a short, or a load bigger than the fuse.", si(amps, "A"), p.label),
+                    "Find what draws the current. If the load is right, use the next fuse up that still blows on a fault.".into(),
+                ),
                 _ => (format!("{} burnt out.", p.label), format!("Check what {} is connected across.", p.label)),
             };
-            hints.push(hint(format!("{} burnt out.", p.label), detail, fix, vec![p.pos]));
+            let what = if matches!(p.kind, Kind::Fuse { .. }) { "blew" } else { "burnt out" };
+            hints.push(hint(format!("{} {what}.", p.label), detail, fix, vec![p.pos]));
         } else if let Kind::Led(_) = p.kind
             && r.volts < -1.0
         {
@@ -369,7 +399,7 @@ mod tests {
     }
 
     fn case(battery: Option<f64>, set: &[(&str, bool)], check: Check) -> Case {
-        Case { name: "test".into(), battery, set: set.iter().map(|(l, v)| (l.to_string(), *v)).collect(), check }
+        Case { name: "test".into(), battery, set: set.iter().map(|(l, v)| (l.to_string(), if *v { 1.0 } else { 0.0 })).collect(), check }
     }
 
     #[test]

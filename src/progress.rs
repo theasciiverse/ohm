@@ -37,6 +37,10 @@ pub struct Progress {
     pub boards: Vec<(String, Board, Vec<Option<u32>>)>,
 }
 
+/// Set by the headless shots: they run the real game, autosave and all, and must never write
+/// the player's save file.
+pub static NO_SAVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
     Some(base.join("ohm").join("progress.txt"))
@@ -58,7 +62,7 @@ impl Progress {
     }
 
     pub fn save(&self) {
-        if cfg!(test) {
+        if cfg!(test) || NO_SAVE.load(std::sync::atomic::Ordering::Relaxed) {
             return;
         }
         let Some(p) = path() else { return };
@@ -231,7 +235,7 @@ mod tests {
             splits: Splits { left: Some(30), right: None, bottom: Some(12) },
             open: Some("bike-lamp".into()),
             muted: true,
-            boards: vec![("bike-lamp".into(), b, vec![Some(1), None, Some(0)])],
+            boards: vec![("bike-lamp".into(), b.clone(), vec![Some(1), None, Some(0)]), ("sandbox".into(), b, Vec::new())],
         };
         let back = Progress::parse(&p.to_text()).unwrap();
         assert_eq!(back, p);

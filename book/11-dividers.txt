@@ -1,0 +1,16 @@
+title: Dividers
+unlock: boat-gauge
+para: Two resistors in series across a battery share its voltage in proportion to their size. The voltage between them, measured from minus, is V × R2 / (R1 + R2), where R2 is the one on the minus side.
+para: Only the ratio sets the reading. 2.2 kΩ over 1 kΩ gives 4.5 × 1 / 3.2 = 1.41 V from three AA cells, and so does 22 kΩ over 10 kΩ, but the small pair draws ten times the current from the battery for the same reading.
+para: E12 values seldom make an exact ratio, so look for a pair that lands inside the range you need, or put two in series or side by side to make another value.
+para: A divider is for something that draws next to nothing, like a meter. Hang a lamp on it and the reading sags, because the lamp is a third resistor in the sum.
+source: The divider rule follows from Ohm's law and Kirchhoff's voltage law (Gustav Kirchhoff, 1845): the same current flows through both resistors, so each takes voltage in proportion to its resistance.
+part: B battery 4.5 0.45 N
+part: R resistor 2k2 0.25 W
+part: S resistor 1k 0.25 N
+part: T testpoint W
+grid:
+┌─R─┐..
+B...├─T
+│...S..
+└───┘..

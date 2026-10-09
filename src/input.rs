@@ -5,6 +5,7 @@
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
 use crate::circuit::Dir;
+use crate::render::Grow;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Act {
@@ -35,6 +36,12 @@ pub enum Act {
     NextSlot,
     PrevSlot,
     CopperMode,
+    /// Open or close the help page.
+    Help,
+    /// Open or close the card binder.
+    Binder,
+    /// Grow a panel along its strip, or put it back.
+    Grow(Grow),
     /// The next or previous job in the inbox.
     NextJob,
     PrevJob,
@@ -102,6 +109,12 @@ impl Input {
                 KeyCode::Char('f') => Act::Mend,
                 KeyCode::Char('u') => Act::Undo,
                 KeyCode::Char('m') => Act::Mute,
+                KeyCode::F(1) | KeyCode::Char('?') => Act::Help,
+                KeyCode::Char('b') => Act::Binder,
+                KeyCode::Char('i') => Act::Grow(Grow::Inbox),
+                KeyCode::Char('v') => Act::Grow(Grow::Meter),
+                KeyCode::Char('o') => Act::Grow(Grow::Scope),
+                KeyCode::Char('g') => Act::Grow(Grow::Card),
                 KeyCode::Char(c @ '0'..='9') => Act::Slot(c as usize - '0' as usize),
                 KeyCode::PageDown => Act::NextJob,
                 KeyCode::PageUp => Act::PrevJob,

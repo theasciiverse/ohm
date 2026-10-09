@@ -1,0 +1,14 @@
+title: Potentiometers
+unlock: night-dimmer
+para: A potentiometer, a pot, is a resistor track with a third leg, the wiper, that slides along it as the knob turns. The two ends are always the whole track; the wiper splits it into two parts that add up to the whole.
+para: As a divider: the ends across the supply, and the wiper gives any voltage between them. Half way round, half the voltage. This is how a volume knob or a fuel gauge's float works.
+para: As a variable resistor: one end and the wiper. Turned to the end, it is next to nothing, so an LED behind it needs a fixed resistor in series as well, or the knob can burn it out.
+para: Turn it through its whole range before you trust a circuit with a pot in it, both ends.
+source: Paul Horowitz and Winfield Hill, The Art of Electronics (3rd edition, 2015), chapter 1, on voltage dividers and the potentiometer as an adjustable one.
+part: B battery 4.5 0.45 N
+part: P pot 10k 0.5 N
+part: T testpoint W
+grid:
+┌───┐..
+B...P─T
+└───┘..

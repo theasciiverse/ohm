@@ -1,0 +1,32 @@
+# A fuse that carries the lamp's 1.5 A and blows on the fault (about 5.5 A through PB1 and the
+# corroded holder Z). The 2 A fuse does; 500 mA blows with the lamp alone; 5 A sits through the
+# fault and lets the wiring cook.
+name: Trailer light
+customer: Mr Lund
+fee: 60
+note: When the old lamp holder on my trailer shorts out, the wires get hot. Fit a fuse that lets the light work but cuts off the fault. PB1 makes the fault, through the corroded holder.
+battery: 0
+book: fuses
+part: B battery 12 0.05 N
+part: K button N
+part: Z resistor 2.7 100 N
+part: X lamp 8 18 N
+drawer: fuse 0.5 x1 0.30
+drawer: fuse 2 x1 0.30
+drawer: fuse 5 x1 0.30
+case: lamp on: LP1 1.3-1.7 A | set PB1 off | lit LP1 1.3 1.7
+case: the fault: F1 blows | set PB1 on | blown F1
+master-part: F fuse 2 W
+master: ..........
+master: .┌─F─┬──┐.
+master: .B...K..X.
+master: .│...Z..│.
+master: .└───┴──┘.
+master: ..........
+grid:
+..........
+..........
+.B...K..X.
+.....Z....
+..........
+..........

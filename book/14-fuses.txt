@@ -1,0 +1,14 @@
+title: Fuses
+unlock: trailer-fuse
+para: A fuse is a thin wire made to melt when too much current flows, so the fault stops there and not in the wiring. It is the weakest link on purpose.
+para: A fast-acting glass fuse (5 × 20 mm, IEC 60127-2) carries 1.5 times its rating for an hour or more, and must open within 30 minutes at 2.1 times. Further past it, it goes quickly: at 2.75 times in 0.05 to 2 seconds, at 4 times within 0.3 seconds, at 10 times within 20 milliseconds.
+para: Pick the smallest standard rating that carries the normal current with room to spare. A bigger one protects nothing: it sits through the fault while the wires heat up.
+para: A blown fuse is a message: something drew too much. Find it before you put a new one in.
+source: IEC 60127-2 fast-acting limits, as given in Littelfuse's 217 series datasheet (5 × 20 mm, 125 mA to 6.3 A).
+part: B battery 12 0.05 N
+part: F fuse 2 W
+part: X lamp 8 18 N
+grid:
+┌─F─┐
+B...X
+└───┘

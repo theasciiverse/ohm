@@ -7,11 +7,11 @@ embedded nodal-analysis solver decides what the circuit actually does. The arc r
 (a torch) through relays and logic to a small programmable chip. In the family of SHENZHEN I/O,
 Retro Gadgets and Turing Complete (see Inspiration), with a real analog solver as its own heart.
 
-**Status** (2026-10-09): chapter 1 playable from a launch page: six jobs that unlock one after
-another, each with ticks against the old master's par, the Master's Notebook with ten checked
-pages (the meter and scope read its example circuits), a save file. David has played the first
-job; the rest was built overnight (2026-10-08 to 09) and is covered by tests and headless shots,
-not yet by a person. Sound is in but not yet heard. Own git repo, private at github.com/theasciiverse/ohm (2026-10-09).
+**Status** (2026-10-09): chapters 1 and 2 playable from a launch page: twelve jobs that unlock
+one after another, each with ticks against the old master's par, the Master's Notebook with
+fourteen checked pages (the meter and scope read its example circuits), the card binder, the
+sandbox, help on F1, panels that grow, a save file. David has played the first job and tried
+the sandbox; the rest is covered by tests and headless shots, not yet by a person. Sound is in but not yet heard. Own git repo, private at github.com/theasciiverse/ohm (2026-10-09).
 
 ```bash
 cargo run --release                           # play (--mute for no sound)
@@ -20,7 +20,9 @@ cargo test
 cargo run --release -- --bench                # numbers, spec runs and hints as text
 cargo run --release -- --shot desk --demo --cells | python3 tools/shot.py play.png
   # --shot title|desk|gallery, --saved (from the save file), --demo builds the lamp, --secs S, --cursor X,Y,
-  # --overlay drawers|report|bookN, --size WxH
+  # --overlay drawers|report|bookN|help, --grow inbox|multimeter|scope|datasheet, --sandbox, --size WxH
+  # Shots never write the save file (progress::NO_SAVE): before 2026-10-09 they did, through
+  # autosave and job switching, and overwrote David's real save.
 ```
 
 Save file: `$XDG_DATA_HOME/ohm/progress.txt` (else `~/.local/share/ohm/progress.txt`): the
@@ -64,8 +66,8 @@ display names, never in ids or file names.
 
 Checked 2026-10-08 by web search: no game, product or shop called "Ohm's Workshop". Nearest:
 Ohm's Quest (a steampunk escape-room puzzle console, 2023), Super Ohm (a small Windows circuit
-puzzle), OHMIC (an RPG Maker game). Trademark registers (TMview), Steam and itch.io not yet
-checked.
+puzzle), OHMIC (an RPG Maker game). Further checks (TMview, Steam, itch.io) skipped: David,
+2026-10-09.
 
 ## Pillars
 
@@ -268,6 +270,13 @@ the title again, or Esc, snaps it back. A folded panel's title stays clickable, 
   probes). Inbox folds.
 - **Drawers:** down the right column: every part with its card summary. Datasheet folds.
 
+Built 2026-10-09 for the inbox, multimeter, scope and datasheet, with keys `i`, `v`, `o` and `g`
+(Esc also puts a grown panel back before it leaves the desk). The panel edges rest while a panel
+is grown. A bigger multimeter lists current, power, V/I and the load against the rating; a
+taller datasheet shows every rule, the live readings and a few plain words on why the part
+behaves as it does, each block only when it fits whole. The drawers don't grow: their title
+already opens the drawer overlay, which shows every part as a card.
+
 Discoverable: each title carries a small `+` or `-`, and the hint row says "click a title to
 enlarge it" with the keys. A bigger terminal gives every panel more room on its own, as the other
 titles scale to the window; enlarging hands one panel the extra on top of that. **Overlays** are
@@ -294,8 +303,8 @@ job ledger.
 | Switch, push button, two-way switch | open or closed contact | 1 |
 | Resistor | linear, with a power rating: smokes, then burns open | 1 |
 | LED (colour sets Vf) | exponential diode via Newton; overcurrent kills it | 1-2 |
-| Potentiometer, LDR, thermistor | three-terminal and variable resistors | 2 |
-| Fuse | opens above its rating | 2 |
+| Potentiometer, LDR, thermistor | a pot is two resistors meeting at the wiper (its third pin, a quarter turn clockwise from pin `a`), never below 1 Ω each; an LDR follows the GL5528 (8 to 20 kΩ at 10 lux, gamma 0.7, at least 1 MΩ dark; 15 kΩ chosen at 10 lux, rated 100 mW); a thermistor is 10 kΩ at 25 °C with B 3950 by the B equation | 2 (built) |
+| Fuse | 0.1 Ω (chosen); heat follows the square of current over rating with a 0.25 s time constant and it opens at 1.6 times its rating, fitted to IEC 60127-2 fast-acting limits (holds 1.5 times, opens at 2.75 times in 0.05 to 2 s, at 4 times within 0.3 s, at 10 times within 20 ms; a solver test checks each) | 2 (built) |
 | Capacitor | backward-Euler companion model; an electrolytic pops if reversed or over-volted | 3 |
 | Relay | coil as a resistor, pull-in/drop-out hysteresis, a few ms of contact delay (which is what makes buzzers oscillate). Coil and contacts share a label (K1), as in ladder diagrams | 4 |
 | Diode, BJT transistor | Newton models, BJT kept simple | 5 |
@@ -379,6 +388,13 @@ press E to flip it). Neither one is the "real" input with the other added on lat
   cycle the drawer, X rotates, Y operates.
 - **Discoverable:** a hint row always shows the keys for the current context, the drawers show
   every part you have, and every change can be undone.
+- **Help** (David asked, built 2026-10-09): F1 or `?` anywhere, the `F1 help` label in the desk's
+  title bar, or "How to play" on the launch page. `help.txt`, compiled in: `# Heading` lines,
+  `keys :: what they do` rows, paragraphs. A centred popup over the dimmed screen, only as big as
+  it needs (David asked): the fewest 46-wide columns that hold it all, balanced, keeping each
+  section in one column when that fits. Columns never widen, so a bigger terminal shows more of
+  them; at 100x30 it fills the screen and arrows, PgUp/PgDn and the wheel scroll. `?` is there because some terminals (GNOME Terminal among them) keep F1 for
+  their own help. Keep it true to `src/input.rs` and the mouse code when controls change.
 
 ## Feedback and winning
 
@@ -442,12 +458,38 @@ levels, each with its reason); ours is written fresh.
 ## The launch page (built 2026-10-09, David asked 2026-10-08)
 
 The first screen: the title drawn as copper traces with current rippling through the letters,
-a menu: Start or Continue, The Master's Notebook, Sound on/off, Quit (no bare `q`), the shelf of
-gadgets underneath and the ledger in the corner. Esc on
+a menu: Start or Continue, Sandbox, The Master's Notebook, How to play, Quit (no bare `q`), the
+shelf of gadgets underneath, the ledger in one top corner and a clickable sound switch in the
+other (`m` too; it left the menu when Sandbox came, as 100x30 has no row to spare). Esc on
 the desk with nothing in hand comes back here. Jobs are picked in the inbox (click, or PgUp and
 PgDn); each unlocks when the one before is solved, and keeps its board while you visit another.
 Everything clickable, keys shown. Fixed-size art centred in the terminal (pillar 6: a bigger
 terminal shows more desk round it, never a bigger title).
+
+## The card binder (built 2026-10-09)
+
+One card per kind of part (`BINDER` in `src/app.rs`: battery, bench supply, LED, lamp,
+resistor, capacitor, slide switch, push button), an overlay with the list on the left like the
+Notebook. Opened with `b` at the part under the cursor or in hand, or from the BINDER label in
+the datasheet's border. A card is collected once an arrived job uses that part, or it is on the
+sandbox board, so the sandbox is how capacitors and the supply get collected for now. Each card:
+the part's picture, where it was first met, the values the shop stocks, every rule, why it
+behaves so (the same text as the datasheet, from `part_facts`) and a line in the old master's
+voice. Long cards scroll with the wheel.
+
+## The sandbox (built 2026-10-09, David asked)
+
+A desk with no job: no customer, no spec, no fee and no test, a bare 16x9 stretch of the
+workbench, and as many as you like of every kind of part, free, from the start (David: the
+sandbox should have every part, not only the ones the jobs have shown). The catalogue in
+`Job::sandbox`: AA cell, 4.5 V, 9 V and 12 V batteries, a 5 V bench supply, LEDs in all four
+colours, both lamps, E12 resistors from 10 Ω to 100 kΩ plus the café sign's power resistors,
+capacitors from 100 nF to 1000 µF, a slide switch and a push button. Names read as printed on
+real parts ("2.2 kΩ", "1000 µF", lamps by voltage). Its board is saved as `sandbox` and kept
+apart from the jobs'; Continue on
+the launch page goes back to the job it left. For trying things, for children who just want to
+light something and blow it up (pillar 4), and for after the last job; later, players' own
+circuits could become jobs from here (the Strip & Rail idea).
 
 ## Puzzles
 
@@ -470,6 +512,22 @@ right one.
 Battery figures: AA alkaline 2850 mAh at 25 mA, 150 to 300 mΩ fresh (Energizer E91 datasheet);
 9 V block 625 mAh (Eveready 522 datasheet). Not from a datasheet, chosen: the 9 V block's 1.5 Ω
 inside (its datasheet gives none), the van battery's 0.05 Ω, bulbs as fixed resistances.
+
+**Chapter 2 as built** (2026-10-09), each proven by a test in `src/job.rs`; the pot, LDR and
+thermistor are operated with e, a click, or the wheel for a pot, and the bench sets them per case
+(`set RV1 0.5`, `set LDR1 1000`, `set TH1 4`); `blown F1` checks a fuse cleared a fault:
+
+| Job | Customer | Teaches | Passes | Fails |
+|---|---|---|---|---|
+| Boat gauge | Mr Holm, the harbour | a divider, E12 ratios | 4.7k over 2.2k (par, battery tick), 1k over 470 | 2.2k over 1k (0.3125, reads low) |
+| Night light | Elsa, 8 | a pot as a variable resistor, with a fixed resistor | 10k pot and 150 or 220 Ω | 100 Ω too bright, the 1k pot can't dim far, no resistor burns the LED |
+| Fuel gauge | Mr Holm | a pot as a divider, scaling 12 V to 5 V | 15k above the fixed pot | 10k (6 V), 22k (3.75 V), the pot as a plain variable resistor |
+| Light meter | Mr Strand, photographer | an LDR in a divider | LDR on top over 2.2k or 4.7k | 1k, 10k, the LDR underneath |
+| Fridge gauge | Café Ohlsson | a thermistor in a divider | thermistor on top over 22k | 10k, 47k, the thermistor underneath |
+| Trailer light | Mr Lund | fuses | 2 A | 500 mA blows with the lamp, 5 A holds through the fault, no fuse |
+
+The launch page's shelf turns a page per chapter (`<` and `>` on the plank, or left and right)
+when the terminal can't show every gadget; a wide one shows them all.
 
 Chapters follow the drawers:
 
@@ -529,25 +587,47 @@ Each step is seen working before the next starts. Nothing here needs a repo unti
        overlay, test bench with hints and pay, sound, session logging. Next: David plays it.
 5. [x] **The launch page and the Master's Notebook** (ten pages) (2026-10-09).
 6. [x] **Chapter 1**: six jobs, unlocking, the save file (2026-10-09). Still to do from this
-       step: the card binder, the bench supply as a desk object, panels that grow when their
-       title is clicked, and David (and his daughters) playing it.
-7. [ ] **Chapters 2 and 3**: version 1.
-8. [ ] Later: relays, semiconductors, logic, the chip, the sandbox desk.
+       step: the bench supply as a desk object, and David (and his daughters) playing it. The
+       card binder: built 2026-10-09. Panels that grow when their title is clicked: built 2026-10-09.
+7. [ ] **Chapters 2 and 3**: version 1. Chapter 2 built 2026-10-09 (six jobs, four parts, four
+       Notebook pages); chapter 3 (time: capacitors as player parts) next.
+8. [ ] Later: relays, semiconductors, logic, the chip. The sandbox desk: built 2026-10-09.
 
 ## Open decisions
 
 - [x] Framing: a top-down electronics desk (David, 2026-10-08)
 - [x] Board look: a physical board, no schematic view (David, 2026-10-08)
 - [x] Arc: analog first, relays and logic, a programmable chip at the end (David, 2026-10-08)
-- [ ] Setting: a specific place and era (proposed: a small Nordic town, early 1980s, prices in
-      kronor), or kept neutral?
-- [ ] Realism: real units and E12 values throughout?
+- [x] Setting: a small Nordic town, early 1980s, prices in kronor (David, 2026-10-09)
+- [x] Realism: real units and E12 values throughout (David, 2026-10-09)
 - [ ] Desk layout and board size at 100x30
-- [ ] Scope: version 1 is chapters 1 to 3 (about 18 jobs)?
-- [ ] Scope trace: half-block (house style), or a Braille exception for this one display?
-- [ ] The chip's language: instruction set, pin model, program size limit
-- [ ] A sandbox desk (free building with every unlocked part, no job), as SHENZHEN I/O and CRUMB
-      both have?
-- [ ] Board type: perfboard throughout, or a breadboard with jumper wires for the early chapters?
+- [x] Scope: version 1 is chapters 1 to 3, about 18 jobs (David, 2026-10-09)
+- [x] Scope trace: half-block, the house style, no Braille exception (David, 2026-10-09)
+- [ ] The chip's language: instruction set, pin model, program size limit. Proposed 2026-10-09
+      (below); David liked the direction, details still his to confirm.
+- [x] A sandbox desk: yes, built (David, 2026-10-09)
+- [x] Board type: perfboard throughout (David, 2026-10-09)
 - [x] Name: Ohm's Workshop, short id `ohm` (David, 2026-10-08)
-- [ ] Name checks (TMview, Steam, itch.io): not done yet
+- [x] Name checks (TMview, Steam, itch.io): skipped (David, 2026-10-09)
+
+## The chip (proposal, 2026-10-09)
+
+For chapter 7. In SHENZHEN I/O's spirit (its MC4000 has 9 lines and one register, the MC6000
+14 lines and two, checked 2026-10-09), but its pins are honest electronics on the analog board.
+
+- **Pins:** a small chip with + and - (powered from the board like any part) and four pins,
+  `p0` to `p3`. Writing makes a pin an output: `1` is the supply voltage, `0` is ground, each
+  behind about 25 Ω (chosen, near a real CMOS output), so an LED still needs its resistor and a
+  short still heats the chip. Reading a pin gives `1` above half the supply, else `0`. One
+  analog input, `a0`, reads 0 to 99 as a share of the supply, for the LDR and thermistor jobs.
+- **Registers:** `acc` and `dat`, whole numbers from -999 to 999.
+- **Instructions:** `mov A B`, `add A`, `sub A` (into `acc`), `teq A B`, `tgt A B`, `tlt A B`,
+  `jmp LABEL`, `slp MS`. A line marked `+` runs only if the last test passed, `-` only if it
+  failed. The program starts again from the top when it runs off the end. Only `slp` takes
+  time, so every run is deterministic and the bench can test it faster than real time.
+- **Size:** 10 lines (labels and comments free). Tight enough to be the puzzle; the fourth
+  tick on chip jobs is a program no longer than the master's.
+- **No random instruction:** an electronic die counts fast while its button is held, which is
+  how real ones work and a better puzzle.
+
+A blinker on `p0` is four lines: `mov 1 p0`, `slp 500`, `mov 0 p0`, `slp 500`.

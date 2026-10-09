@@ -1,0 +1,16 @@
+title: Light and warmth
+unlock: light-meter
+para: Some resistors change with the world around them. A light-dependent resistor (LDR) falls as light rises: a common one, the GL5528, is 8 to 20 kΩ in a dim room (10 lux) and a megohm or more in the dark. Brighter light takes it lower still; carrying the datasheet's slope on, daylight is around 600 Ω.
+para: A thermistor changes with temperature. The usual kind is NTC, negative temperature coefficient: it falls as it warms. A common one is 10 kΩ at 25 °C, with B = 3950 K, and about 27.5 kΩ at 4 °C.
+para: On its own a sensor is only a resistance. Put it in a divider and the change becomes a voltage a meter can read: the sensor on top and a fixed resistor below, and the reading rises with light or warmth.
+para: Choose the fixed resistor near the sensor's resistance in the middle of the range you care about; that is where the reading moves most.
+source: GL55 series photoresistor datasheet (GL5528: 8-20 kΩ at 10 lux, 1 MΩ minimum dark, gamma 0.7). 10 kΩ NTC thermistors with B25/50 = 3950 K as listed by Vishay, TDK and Adafruit; resistance from the B equation, R = R25 × exp(B × (1/T - 1/T25)).
+part: B battery 4.5 0.45 N
+part: Y ldr 100 W
+part: S resistor 4k7 0.25 N
+part: T testpoint W
+grid:
+┌─Y─┐..
+B...├─T
+│...S..
+└───┘..

@@ -24,6 +24,10 @@ const R_CLOSED: f64 = 0.01;
 const MAX_ITER: usize = 200;
 /// The current an LED's `vf` is given at.
 const LED_I_REF: f64 = 0.010;
+/// A fuse's heat follows its load with this time constant, seconds, and it opens at this load
+/// (the square of 1.6 times its rating).
+const FUSE_TAU: f64 = 0.25;
+const FUSE_LIMIT: f64 = 2.56;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Node(usize);
@@ -83,6 +87,8 @@ enum Kind {
     /// Bench supply: constant voltage until the current limit, then constant current.
     Supply { volts: f64, limit: f64 },
     Switch { closed: bool },
+    /// A fuse: a small resistance that heats by the square of its current over its rating.
+    Fuse { ohms: f64, amps: f64 },
     /// Anode `a`, cathode `b`, the junction between `mid` and `b`.
     Led(Led),
     Capacitor { farads: f64 },
@@ -185,6 +191,11 @@ impl Circuit {
         self.add(Kind::Supply { volts, limit }, pos, neg, false, true)
     }
 
+    /// A fast-acting fuse rated `amps`, with its cold resistance `ohms`.
+    pub fn fuse(&mut self, a: Node, b: Node, ohms: f64, amps: f64) -> PartId {
+        self.add(Kind::Fuse { ohms, amps }, a, b, false, false)
+    }
+
     pub fn switch(&mut self, a: Node, b: Node, closed: bool) -> PartId {
         self.add(Kind::Switch { closed }, a, b, false, false)
     }
@@ -281,6 +292,11 @@ impl Circuit {
             let (load, tau, limit) = match p.kind {
                 Kind::Resistor { watts, .. } if watts.is_finite() => (p.power / watts, 0.5, 2.0),
                 Kind::Led(led) => (p.current.max(0.0) / led.i_max, 0.02, led.i_burn / led.i_max),
+                // Heat goes as the square of the current. Fitted to IEC 60127-2's fast-acting
+                // limits: it carries 1.5 times its rating for good (an hour or more there),
+                // opens at 2.1 times (within 30 minutes there), at 2.75 times in 0.05 to 2 s,
+                // at 4 times in 0.01 to 0.3 s and at 10 times within 20 ms.
+                Kind::Fuse { amps, .. } => ((p.current / amps).powi(2), FUSE_TAU, FUSE_LIMIT),
                 _ => continue,
             };
             p.heat += (load - p.heat) * (1.0 - (-dt / tau).exp());
@@ -362,7 +378,7 @@ impl Circuit {
             return;
         }
         match p.kind {
-            Kind::Resistor { ohms, .. } => m.g(p.a, p.b, 1.0 / ohms),
+            Kind::Resistor { ohms, .. } | Kind::Fuse { ohms, .. } => m.g(p.a, p.b, 1.0 / ohms),
             Kind::Switch { closed } => {
                 if closed {
                     m.g(p.a, p.b, 1.0 / R_CLOSED);
@@ -417,7 +433,7 @@ impl Circuit {
                 0.0
             } else {
                 match p.kind {
-                    Kind::Resistor { ohms, .. } => v / ohms,
+                    Kind::Resistor { ohms, .. } | Kind::Fuse { ohms, .. } => v / ohms,
                     Kind::Switch { closed } => if closed { v / R_CLOSED } else { 0.0 },
                     Kind::Battery { .. } => -x[base + p.branch.unwrap()],
                     Kind::Supply { limit, .. } => {
@@ -787,6 +803,36 @@ mod tests {
         }
         assert!(!c.burnt(r));
         close(c.heat(r), 1.0, 1e-3);
+    }
+
+    /// How long a 1 A fuse carries `times` its rating before it opens; `None` if it holds for a
+    /// simulated minute.
+    fn fuse_opens_after(times: f64) -> Option<f64> {
+        let mut c = Circuit::new();
+        let pos = c.node();
+        let mid = c.node();
+        c.battery(pos, GROUND, 10.0, 0.0);
+        let f = c.fuse(pos, mid, 0.1, 1.0);
+        c.resistor(mid, GROUND, 10.0 / times - 0.1);
+        let dt = 0.0005;
+        for k in 1..=(60.0 / dt) as usize {
+            c.step(dt).unwrap();
+            if c.burnt(f) {
+                return Some(k as f64 * dt);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_fuse_keeps_iec_60127_fast_acting_times() {
+        assert_eq!(fuse_opens_after(1.0), None);
+        assert_eq!(fuse_opens_after(1.5), None);
+        let t = |times| fuse_opens_after(times).unwrap_or(f64::INFINITY);
+        assert!(t(2.1) < 30.0 * 60.0, "{}", t(2.1));
+        assert!((0.05..=2.0).contains(&t(2.75)), "{}", t(2.75));
+        assert!((0.01..=0.3).contains(&t(4.0)), "{}", t(4.0));
+        assert!(t(10.0) <= 0.02, "{}", t(10.0));
     }
 
     #[test]
