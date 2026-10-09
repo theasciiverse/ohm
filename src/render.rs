@@ -1514,8 +1514,45 @@ const LOGO: [&str; 4] = ["┌─┐ ╷ ╷ ┌┬┐", "│ │ │ │ ││�
 /// The logo's board: a tile of margin left and right, one row above.
 const LOGO_TILES: (u16, u16) = (13, 5);
 
+/// Rows the launch page needs, above the hint line: the logo, the name, the menu, the shelf.
+const TITLE_ROWS: u16 = LOGO_TILES.1 * TILE_H + 14;
+// (logo, a gap, the name and its line, a gap, four menu rows, a gap, the shelf's five rows)
+
 fn title_top(area: Rect) -> u16 {
-    area.y + area.height.saturating_sub(LOGO_TILES.1 * TILE_H + 12) / 2
+    area.y + area.height.saturating_sub(TITLE_ROWS + 1) / 2
+}
+
+/// One gadget on the launch page's shelf.
+pub struct ShelfItem {
+    pub id: String,
+    /// Arrived in the inbox, solved, and its ticks.
+    pub arrived: bool,
+    pub solved: bool,
+    pub ticks: Vec<bool>,
+}
+
+/// Each slot on the shelf: a gadget's picture, its name and its ticks.
+const SHELF_W: u16 = 13;
+
+/// Where the shelf's gadgets are, for drawing and for the mouse.
+pub fn shelf_slots(area: Rect, n: usize) -> Vec<Rect> {
+    let y = title_top(area) + LOGO_TILES.1 * TILE_H + 9;
+    let x0 = area.x + area.width.saturating_sub(SHELF_W * n as u16) / 2;
+    (0..n).map(|i| Rect::new(x0 + i as u16 * SHELF_W, y, SHELF_W, 5)).collect()
+}
+
+/// A gadget's picture: four rows of eight pixels, drawn two to a cell with half blocks, and its
+/// name on the shelf. Letters are colours (see `shelf`); a dot is the shelf showing through.
+fn shelf_art(id: &str) -> ([&'static str; 4], &'static str) {
+    match id {
+        "bike-lamp" => (["GGGLy...", "GGGLYYy.", "GGGLy...", ".G......"], "bike lamp"),
+        "porch-lamp" => (["..KKKK..", "..KLLK..", "..KLLK..", "...KK..."], "porch lamp"),
+        "two-doors" => (["DD.LL.DD", "DD....DD", "Dk....Dk", "DD....DD"], "two doors"),
+        "dolls-house" => (["...RR...", ".RRRRRR.", ".WWrWWW.", ".WWgWDW."], "doll's house"),
+        "christmas-star" => (["...SS...", "SSSrSSSS", ".SrSSrS.", ".SS..SS."], "star"),
+        "cafe-sign" => (["PPPPPPPP", "PtPtPtPP", "PPPPPPPP", "...KK..."], "café sign"),
+        _ => (["........", ".GGGGGG.", ".GGGGGG.", "........"], "gadget"),
+    }
 }
 
 /// Where the launch page's menu entries are, for drawing and for the mouse.
@@ -1525,9 +1562,10 @@ pub fn title_items(area: Rect, n: usize) -> Vec<Rect> {
     (0..n).map(|i| Rect::new(area.x + (area.width.saturating_sub(w)) / 2, y + i as u16, w, 1)).collect()
 }
 
-/// The launch page: the name in copper with current running through it, the menu, a line of
-/// progress. Fixed size, centred: a bigger terminal shows more desk round it.
-pub fn title(buf: &mut Buffer, area: Rect, menu: &[String], sel: usize, line: &str, time: f64) {
+/// The launch page: the name in copper with current running through it, the menu, the shelf of
+/// gadgets, the ledger in the corner. Fixed size, centred: a bigger terminal shows more desk round it.
+#[allow(clippy::too_many_arguments)]
+pub fn title(buf: &mut Buffer, area: Rect, menu: &[String], sel: usize, line: &str, shelf_items: &[ShelfItem], hover: Option<usize>, time: f64) {
     fill(buf, area, DESK);
     let (pw, ph) = (LOGO_TILES.0 * TILE_W, LOGO_TILES.1 * TILE_H);
     let x0 = area.x + area.width.saturating_sub(pw) / 2;
@@ -1565,10 +1603,82 @@ pub fn title(buf: &mut Buffer, area: Rect, menu: &[String], sel: usize, line: &s
         let padded = format!("{label:^w$}", w = r.width as usize);
         bold(buf, r.x, r.y, &padded, fg, bg);
     }
-    let ly = title_items(area, menu.len()).last().map(|r| r.y + 2).unwrap_or(y + 2);
-    text(buf, area.x + area.width.saturating_sub(line.chars().count() as u16) / 2, ly, line, DIM, DESK);
+    // The ledger in the corner, as on the desk.
+    text(buf, area.x + area.width.saturating_sub(line.chars().count() as u16 + 1), area.y, line, AMBER, DESK);
+    shelf(buf, area, shelf_items, hover, time);
     let hint = "arrows and Enter, or click · Ctrl+C quits";
     text(buf, area.x + area.width.saturating_sub(hint.chars().count() as u16) / 2, area.y + area.height - 1, hint, DIM, DESK);
+}
+
+/// The shelf of gadgets on the launch page: dark until the job is solved, then lit, with its
+/// ticks under it. Jobs not yet arrived are sealed letters.
+fn shelf(buf: &mut Buffer, area: Rect, items: &[ShelfItem], hover: Option<usize>, time: f64) {
+    const WOOD: Rgb = (92, 62, 36);
+    let slots = shelf_slots(area, items.len());
+    let (Some(first), Some(last)) = (slots.first(), slots.last()) else { return };
+    // The plank they stand on.
+    for x in first.x..last.x + last.width {
+        put(buf, x, first.y + 2, "▀", WOOD, DESK);
+    }
+    for (i, (item, r)) in items.iter().zip(&slots).enumerate() {
+        let (art, name) = shelf_art(&item.id);
+        let px = r.x + (SHELF_W - 8) / 2;
+        // A slow glow on what works, each gadget a little out of step with the next.
+        let glow = if item.solved { 0.75 + 0.25 * (time * 2.0 + i as f64).sin() } else { 0.0 };
+        let lit = |c: Rgb| mix((40, 40, 40), c, glow);
+        let colour = |ch: char| -> Option<Rgb> {
+            if !item.arrived {
+                return None;
+            }
+            let body = |c: Rgb| if item.solved { c } else { mix(c, (30, 30, 30), 0.6) };
+            Some(match ch {
+                'G' => body((150, 150, 150)),
+                'K' => body((60, 60, 66)),
+                'D' => body((140, 90, 50)),
+                'k' => body((220, 190, 60)),
+                'R' => body((170, 50, 40)),
+                'W' => body((214, 186, 140)),
+                'P' => body((110, 70, 40)),
+                'S' => body((230, 200, 60)),
+                'L' => lit((255, 236, 160)),
+                'Y' => lit((255, 210, 80)),
+                'y' => mix(DESK, (255, 210, 80), glow * 0.5),
+                'r' => lit((255, 40, 30)),
+                'g' => lit((40, 230, 70)),
+                't' => lit((255, 120, 60)),
+                _ => return None,
+            })
+        };
+        if item.arrived {
+            for row in 0..2u16 {
+                let top: Vec<char> = art[row as usize * 2].chars().collect();
+                let bottom: Vec<char> = art[row as usize * 2 + 1].chars().collect();
+                for col in 0..8 {
+                    let x = px + col as u16;
+                    match (colour(top[col]), colour(bottom[col])) {
+                        (Some(t), Some(b)) => put(buf, x, r.y + row, "▀", t, b),
+                        (Some(t), None) => put(buf, x, r.y + row, "▀", t, DESK),
+                        (None, Some(b)) => put(buf, x, r.y + row, "▄", b, DESK),
+                        (None, None) => {}
+                    }
+                }
+            }
+        } else {
+            // A sealed letter: the job hasn't come in yet.
+            text(buf, px, r.y, "┌──────┐", DIM, DESK);
+            text(buf, px, r.y + 1, "└──────┘", DIM, DESK);
+        }
+        let hovered = hover == Some(i) && item.arrived;
+        let label = if item.arrived { name } else { "sealed" };
+        let col = if hovered { AMBER } else if item.solved { TEXT } else { DIM };
+        text(buf, r.x + (SHELF_W - label.chars().count() as u16) / 2, r.y + 3, label, col, DESK);
+        if item.arrived {
+            let tx = r.x + (SHELF_W - item.ticks.len() as u16) / 2;
+            for (k, t) in item.ticks.iter().enumerate() {
+                put(buf, tx + k as u16, r.y + 4, TICK, if *t { AMBER } else { DIM }, DESK);
+            }
+        }
+    }
 }
 
 /// The desk doesn't fit: say how big it needs to be.

@@ -117,6 +117,8 @@ pub struct App {
     message: Option<(String, f64)>,
     /// Sound as the player last set it, for the save file (`--mute` alone doesn't stick).
     sound_off: bool,
+    /// The gadget on the launch page's shelf under the mouse.
+    shelf_hover: Option<usize>,
     /// The board and drawers as last seen, and when they last changed: a save follows a
     /// couple of seconds after the last edit.
     seen: (Board, Vec<Item>),
@@ -234,6 +236,7 @@ impl App {
             message: None,
             unsolvable: false,
             sound_off: progress.muted,
+            shelf_hover: None,
             seen: (Board::new(1, 1), Vec::new()),
             changed_at: None,
             area: Rect::new(0, 0, render::MIN_W, render::MIN_H),
@@ -900,10 +903,33 @@ impl App {
         }
     }
 
+    fn shelf_items(&self) -> Vec<render::ShelfItem> {
+        (0..self.jobs.len())
+            .map(|i| render::ShelfItem { id: self.jobs[i].id.clone(), arrived: self.unlocked(i), solved: self.solved[i], ticks: self.marks(i) })
+            .collect()
+    }
+
     fn title_act(&mut self, a: Act) {
         let menu = self.menu();
         let rects = render::title_items(self.area, menu.len());
         let at = |x: u16, y: u16| rects.iter().position(|r| render::in_rect(*r, x, y));
+        let shelf = render::shelf_slots(self.area, self.jobs.len());
+        let on_shelf = |x: u16, y: u16| shelf.iter().position(|r| render::in_rect(*r, x, y));
+        if let Act::Hover(x, y) = a {
+            self.shelf_hover = on_shelf(x, y);
+        }
+        // A gadget on the shelf opens its job on the desk.
+        if let Act::Down(x, y, false) = a
+            && let Some(i) = on_shelf(x, y)
+        {
+            if self.unlocked(i) {
+                self.open_job(i);
+                self.screen = Screen::Desk;
+            } else {
+                self.audio.play(Sfx::Denied);
+            }
+            return;
+        }
         match a {
             Act::Move(Dir::N) | Act::PrevSlot => self.title_sel = (self.title_sel + menu.len() - 1) % menu.len(),
             Act::Move(Dir::S) | Act::NextSlot => self.title_sel = (self.title_sel + 1) % menu.len(),
@@ -1373,9 +1399,9 @@ impl App {
     pub fn draw(&self, buf: &mut Buffer) {
         let area = self.area;
         if self.screen == Screen::Title {
-            let solved = self.solved.iter().filter(|&&s| s).count();
-            let line = format!("{solved} of {} jobs done · ledger {:.2} kr", self.jobs.len(), self.ledger);
-            render::title(buf, area, &self.menu().into_iter().map(|m| m.1).collect::<Vec<_>>(), self.title_sel, &line, self.time);
+            let line = format!("ledger {:.2} kr", self.ledger);
+            let shelf = self.shelf_items();
+            render::title(buf, area, &self.menu().into_iter().map(|m| m.1).collect::<Vec<_>>(), self.title_sel, &line, &shelf, self.shelf_hover, self.time);
             return;
         }
         let Some(l) = self.layout() else {
@@ -1846,6 +1872,20 @@ mod tests {
             a.update(0.016);
         }
         assert_eq!(a.changed_at, None, "never saved");
+    }
+
+    #[test]
+    fn a_gadget_on_the_shelf_opens_its_job_and_a_sealed_one_stays_shut() {
+        let mut a = app();
+        a.screen = Screen::Title;
+        a.solved[0] = true;
+        let slots = render::shelf_slots(a.area, a.jobs.len());
+        // The porch lamp has arrived (the bike lamp is solved); the doorbells haven't.
+        a.act(Act::Down(slots[2].x + 2, slots[2].y, false));
+        assert_eq!(a.screen, Screen::Title);
+        a.act(Act::Down(slots[1].x + 2, slots[1].y, false));
+        assert_eq!(a.screen, Screen::Desk);
+        assert_eq!(a.current, 1);
     }
 
     #[test]

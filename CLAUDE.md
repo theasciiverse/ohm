@@ -402,9 +402,11 @@ press E to flip it). Neither one is the "real" input with the other added on lat
   the difference against your best. The battery tick earns a tip of a tenth of the fee, once.
   The report compares your build with the master's line by line. Saved per job as
   `best ID PROFIT thrifty frugal`.
+- **The shelf** (built 2026-10-09): every job is a small half-block gadget on a plank on the
+  launch page, dark until solved, then lit with a slow glow, its ticks underneath; jobs not yet
+  arrived are sealed letters. Clicking a gadget opens its job. Pictures in `shelf_art`.
 - **Later, proposed:** money buys workshop things (bench supply, a second probe, bigger drawers,
-  desk decorations; never the learning), and a shelf of finished gadgets on the launch page.
-  For chip jobs, program length as a fourth tick. No server, so no global histograms.
+  desk decorations; never the learning). For chip jobs, program length as a fourth tick. No server, so no global histograms.
 - **Prices with real choices:** a job should offer a dearer easy part and a cheaper clever one.
   In chapter 1 only the café sign does (four 100 Ω 1 W side by side, 1.20 kr, against one
   22 Ω 2 W, 1.50 kr); elsewhere every honest answer costs the same and the parts tick only
@@ -440,7 +442,8 @@ levels, each with its reason); ours is written fresh.
 ## The launch page (built 2026-10-09, David asked 2026-10-08)
 
 The first screen: the title drawn as copper traces with current rippling through the letters,
-and a menu: Start or Continue, The Master's Notebook, Sound on/off, Quit (no bare `q`). Esc on
+a menu: Start or Continue, The Master's Notebook, Sound on/off, Quit (no bare `q`), the shelf of
+gadgets underneath and the ledger in the corner. Esc on
 the desk with nothing in hand comes back here. Jobs are picked in the inbox (click, or PgUp and
 PgDn); each unlocks when the one before is solved, and keeps its board while you visit another.
 Everything clickable, keys shown. Fixed-size art centred in the terminal (pillar 6: a bigger
