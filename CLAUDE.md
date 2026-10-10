@@ -7,9 +7,11 @@ embedded nodal-analysis solver decides what the circuit actually does. The arc r
 (a torch) through relays and logic to a small programmable chip. In the family of SHENZHEN I/O,
 Retro Gadgets and Turing Complete (see Inspiration), with a real analog solver as its own heart.
 
-**Status** (2026-10-09): chapters 1 to 3, version 1, playable from a launch page: eighteen jobs
-that unlock one after another, each with ticks against the old master's par, the Master's
-Notebook with seventeen checked pages (the meter and scope read its example circuits), the card binder, the
+**Status** (2026-10-10): chapters 1 to 5 and the first three jobs of 6 playable from a launch page (version 1 is chapters 1
+to 3; chapters 4, relays, and 5, diodes and transistors, were built overnight 2026-10-09 to 10
+while David slept, not yet seen by him; chapter 6's blinker and one-shot followed on
+2026-10-10): thirty-three jobs that unlock one after another, each with
+ticks against the old master's par, the Master's Notebook with twenty-eight checked pages (the meter and scope read its example circuits), the card binder, the
 sandbox, help on F1, panels that grow, a save file. David has played the first job and tried
 the sandbox; the rest is covered by tests and headless shots, not yet by a person. Sound is in but not yet heard. Own git repo, private at github.com/theasciiverse/ohm (2026-10-09).
 
@@ -39,8 +41,8 @@ Code:
 - `src/circuit.rs`: the board (tiles, trace masks, jumpers, parts with facing and burnt state),
   editing, embedding a job in the workbench, the netlist by union-find over tile-edge ports,
   `trace_glyph`, and `Live` (a board as a running circuit, the current in every copper tile).
-- `src/bench.rs`: spec cases (`Lit`, `Dark`, `Volts`, `Blown`, and the timed `Lasts` and
-  `Reaches`; several parts with `LED1+LED2`; events partway through, `at 3 set SW1 off`) and
+- `src/bench.rs`: spec cases (`Lit`, `Dark`, `Volts`, `Blown`, and the timed `Lasts`,
+  `Reaches` and `Blinks`; several parts with `LED1+LED2`; events partway through, `at 3 set SW1 off`) and
   `diagnose`, the three-step hints.
 - `src/job.rs`: the job file format (documented at its top), `jobs/*.txt` compiled in, the
   master's solution, scores and ticks, and a test per job proving its intended answer passes
@@ -308,8 +310,9 @@ job ledger.
 | Potentiometer, LDR, thermistor | a pot is two resistors meeting at the wiper (its third pin, a quarter turn clockwise from pin `a`), never below 1 Ω each; an LDR follows the GL5528 (8 to 20 kΩ at 10 lux, gamma 0.7, at least 1 MΩ dark; 15 kΩ chosen at 10 lux, rated 100 mW); a thermistor is 10 kΩ at 25 °C with B 3950 by the B equation | 2 (built) |
 | Fuse | 0.1 Ω (chosen); heat follows the square of current over rating with a 0.25 s time constant and it opens at 1.6 times its rating, fitted to IEC 60127-2 fast-acting limits (holds 1.5 times, opens at 2.75 times in 0.05 to 2 s, at 4 times within 0.3 s, at 10 times within 20 ms; a solver test checks each) | 2 (built) |
 | Capacitor | backward-Euler companion model. From 1 µF up an electrolytic: polarised, rated in volts, and it vents (opens) when held past its surge voltage (1.15 times its rating) or reversed by more than 1.5 V, both from Vishay's "Aluminum Capacitors: Introduction" (document 25001); its stress follows the square of the overshoot with a 0.5 s time constant (chosen). Below 1 µF a ceramic that never fails. A rebuilt circuit (an edit, a pot turned) keeps every capacitor's charge, matched by tile | 3 (built) |
-| Relay | coil as a resistor, pull-in/drop-out hysteresis, a few ms of contact delay (which is what makes buzzers oscillate). Coil and contacts share a label (K1), as in ladder diagrams | 4 |
-| Diode, BJT transistor | Newton models, BJT kept simple | 5 |
+| Relay | one tile, four legs: the coil along its facing, one contact across, normally open or normally closed (NC). The coil is a resistance from its power (0.36 W: 70 Ω at 5 V, 225 Ω at 9 V, 400 Ω at 12 V); it pulls in at 75 % of its rating and drops out at 5 %, after 8 ms and 5 ms; past 130 % the coil heats (2 s time constant, chosen) and burns open. All from Sanyou's SRD series datasheet (V3.2), taking its limits as the values. The contact moves at the end of a step, so a relay through its own NC contact buzzes (77 Hz). A rebuild keeps every relay's state, by tile. A red stop button (closed until pressed) came with it | 4 (built) |
+| Diode | the LED model with a 1N4001's numbers: the Motorola databook's SPICE model (IS 14.11 nA, N 1.984, RS 33.9 mΩ: 0.69 V at 10 mA, 0.96 V at 1 A against Vishay's 1.1 V maximum); rated 1 A, burns at 3 A held (chosen); no reverse breakdown (50 V, past every battery here) | 5 (built) |
+| NPN transistor | BC547B by the Ebers-Moll transport model, solved by Newton with junction limiting on both junctions: IS 2.39e-14, BF 294, BR 7.95 (NXP's SPICE model, as posted on EEVblog; BF matches onsemi's typical hFE 290), 625 mW and 100 mA (onsemi), heating by power or collector current like a resistor; its junction capacitances (10 pF and 1.7 pF, onsemi typical) are in, because without them a circuit that flips itself over (a two-transistor blinker) would have to flip in no time and Newton can't follow. A step Newton can't settle is split in halves, down to about a nanosecond. One tile, three legs: collector toward its facing, emitter opposite, base a quarter turn clockwise, like a pot's wiper, or anticlockwise with its legs bent the other way (`e` or a click; `npn flip` in job files), which a symmetric two-transistor circuit needs. Each transistor added has a saturation current 1 % above the last (chosen; real spread is far wider), and a freshly built circuit starts with nanosecond steps growing a tenth at a time: backward Euler at 1 ms damps the fast tipping of a flip-flop and would hold it balanced half on, half off. A rebuild keeps each transistor's junction state, so an edit doesn't make a flip-flop forget | 5 (built) |
 | Logic gate ICs, 7-segment display | behavioural, powered implicitly | 6 |
 | Programmable chip | behavioural: reads and drives its pins each step, running a tiny assembly program | 7 |
 
@@ -471,7 +474,8 @@ terminal shows more desk round it, never a bigger title).
 ## The card binder (built 2026-10-09)
 
 One card per kind of part (`BINDER` in `src/app.rs`: battery, bench supply, LED, lamp,
-resistor, capacitor, slide switch, push button, fuse, pot, LDR, thermistor), an overlay with
+resistor, capacitor, slide switch, push button, fuse, pot, LDR, thermistor, relay, diode,
+transistor; the stop button shares the push button's card), an overlay with
 the list on the left like the Notebook. Opened with `b` at the part under the cursor or in hand,
 or from the BINDER label in the datasheet's border. A card is collected once an arrived job uses
 that part, or it is on the sandbox board; the standlight brings the capacitor, and the sandbox is
@@ -488,8 +492,9 @@ sandbox should have every part, not only the ones the jobs have shown). The cata
 `Job::sandbox`: AA cell, 4.5 V, 9 V and 12 V batteries, a 5 V bench supply, LEDs in all four
 colours, both lamps, E12 resistors from 10 Ω to 100 kΩ plus the café sign's power resistors,
 a 100 nF ceramic and electrolytics from 10 µF 25 V to 4700 µF 16 V (and one 1000 µF 6.3 V, to
-find out what a rating means), the pot, LDR, thermistor and fuses, a slide switch and a push
-button. Names read as printed on
+find out what a rating means), the pot, LDR, thermistor and fuses, a slide switch, a push
+button and a stop button, relays at 5, 9 and 12 V, normally open and closed, a 1N4001 diode
+and a BC547 transistor. Names read as printed on
 real parts ("2.2 kΩ", "1000 µF", lamps by voltage). Its board is saved as `sandbox` and kept
 apart from the jobs'; Continue on
 the launch page goes back to the job it left. For trying things, for children who just want to
@@ -548,6 +553,52 @@ times things from the last event (`lasts LED1 4 8`: stays lit that long; `reache
 Not a real dynamo: the standlight's battery and switch stand in for one (a real dynamo gives AC
 and needs a rectifier, chapter 5).
 
+**Chapter 4 as built** (2026-10-09, overnight, not yet seen by David), "Relays", each proven by
+a test in `src/job.rs`; `blinks LP1 0.33 0.5` times a blink or a relay's chatter after it has had
+0.5 s to start, over 6 s:
+
+| Job | Customer | Teaches | Passes | Fails |
+|---|---|---|---|---|
+| Spotlamps | Mr Lund, the van | a relay: a small current switches a big one | a 12 V relay, coil on the thin dash wire (R1, 1.5 Ω 2 W), contact on the battery | wired straight through (dim, the wire burns), NC lights it backwards, the 5 V coil burns |
+| Coffee roaster | Café Ohlsson | self-holding: a seal-in contact across START, a stop button that breaks | a 12 V relay holding itself in, the lamp (the motor) beside its coil | no holding contact stops on letting go, an NC relay buzzes |
+| Railway signal | Mr Nilsson | NOT: an NC contact | red straight from the track contact, green through a 9 V NC relay | an NO relay gets green backwards |
+| Doorbell buzzer | Mrs Ek | a relay through its own NC contact buzzes | a 5 V NC relay (77 Hz) | NO never starts, 12 V can't pull in on 4.5 V, a coil straight off the button just pulls in |
+| Cellar light | Mrs Ek | a capacitor across the coil is a timer: 0.4 s per 1000 µF times ln 20 | 4700 µF 16 V (5.6 s) | 2200 µF (2.6 s), the 10 V can vents |
+| Lighthouse | Mr Holm, the harbour | a flasher: a buzzer slowed by a capacitor | NC relay, 2200 µF (a flash every 2.5 s) | 1000 µF (1.2 s), 4700 µF, an NO relay never starts |
+
+**Chapter 5 as built** (2026-10-10, overnight, not yet seen by David), "Semiconductors", each
+proven by a test in `src/job.rs`. The two-transistor blinker moved to chapter 6: on a 10x6
+board its crossed capacitors need a jumper and more room than the other jobs, and it suits the
+flip-flops there. The solver already runs it (a test against 2 ln 2 R C):
+
+| Job | Customer | Teaches | Passes | Fails |
+|---|---|---|---|---|
+| Flash battery box | Mr Strand | a diode in series guards against a battery put in backwards | the diode with its band toward the circuit | no diode (the electrolytic vents on -9 V), the diode backwards |
+| Which door | Mrs Ek | diodes as one-way gates | a diode from each door's button to the bell | plain copper: either button lights both LEDs |
+| Flood alarm | Mrs Ek | a transistor switches a big current from a tiny one | a BC547 with 470 Ω in its collector (14.6 mA) | 220 too bright, 1k too dim |
+| Oil warning | Mr Lund | a transistor as NOT: a base resistor and a switch to minus | 10k into the base, 680 Ω for the LED | 1M too weak, 100 Ω burns while shorted, 470 and 1k |
+| Freezer alarm | Café Ohlsson | a thermistor divider on a base | the thermistor over 3.3k | 2.2k too dim at 4 °C, 10k lit in the freezer |
+| Jetty light | Mr Holm | an LDR divider on a base: a dusk switch | 47k over the LDR | 10k lit when overcast, 1M never bright |
+
+The oil warning has a cheaper honest answer than the master's: the LED and its resistor with
+the switch across the LED, which shorts it out while the engine has pressure (17 mA wasted the
+whole time). It passes and beats the par; left in on purpose.
+
+**Chapter 6 begun** (2026-10-10, not yet seen by David), "Logic", as logic from transistors,
+the way it was first built (RTL), each proven by a test in `src/job.rs`. The blinker and the
+one-shot need a 10x7 board, a row taller than the rest, and two jumpers; at 100x30 the bottom
+row scrolls into view. David, 2026-10-10: fine, most players have a bigger terminal. Measured
+in the solver, each timed half is 0.62 R C rather than ln 2 R C (0.69), because the LED in the
+collector takes a little of the collector's fall; the Notebook says "a little under 0.7":
+
+| Job | Customer | Teaches | Passes | Fails |
+|---|---|---|---|---|
+| Occupied sign | Café Ohlsson | a flip-flop: two BC547s cross-fed through 10k, LEDs in the emitters, a button grounding each base, one transistor with its legs bent | 10k cross links | 1M can't switch a side on, an unbent transistor's base faces away |
+| Crossing lights | Mr Nilsson, model railway | a blinker: capacitors in both cross links | 82k and 10 µF (0.98 flashes a second) | 68k (1.18), 100k (0.81), 100 µF ten times too slow |
+| Quiz timer | Elsa, 8 | a one-shot: a capacitor in one cross link, a 47k resistor in the other, the button feeding Q2's base through 10k | 82k and 100 µF (green 5.05 s after letting go) | 68k (4.2 s), 100k (over 6 s), 47 and 220 µF, the button straight to the base burns Q2 |
+
+Chips (gates, a counter, a 7-segment display) are David's to shape with the chip proposal below.
+
 The launch page's shelf turns a page per chapter (`<` and `>` on the plank, or left and right)
 when the terminal can't show every gadget; a wide one shows them all.
 
@@ -559,9 +610,9 @@ Chapters follow the drawers:
 3. **Time:** RC delays, a fade-out courtesy light, a stairwell timer light.
 4. **Relays:** a self-holding start/stop circuit, AND/OR/NOT, a doorbell buzzer, a traffic-light
    sequencer.
-5. **Semiconductors:** diode protection, a transistor switch, a dusk night light, the
-   two-transistor blinker.
-6. **Logic:** gates, flip-flops, a counter, a 7-segment display.
+5. **Semiconductors:** diode protection, a transistor switch, a dusk night light (built; the
+   two-transistor blinker moved on to chapter 6).
+6. **Logic:** flip-flops, the two-transistor blinker and a one-shot (built), gates, a counter, a 7-segment display.
 7. **The chip:** a small programmable chip with its own tiny assembly language, reading and
    driving real pins on the analog board. The finale is a small machine such as an electronic die
    or a reaction game.
@@ -615,7 +666,11 @@ Each step is seen working before the next starts. Nothing here needs a repo unti
        Notebook pages); chapter 3 built 2026-10-09 (six jobs, electrolytics with polarity and
        ratings, timed bench checks, three Notebook pages). Next: David and his daughters play
        version 1.
-8. [ ] Later: relays, semiconductors, logic, the chip. The sandbox desk: built 2026-10-09.
+8. [ ] Later: relays (chapter 4 built 2026-10-09: the relay and the stop button, `blinks`, six
+       jobs, four Notebook pages, relay hints, clack and buzz sounds), semiconductors (chapter 5
+       built 2026-10-10: the diode and the transistor, six jobs, four pages, their hints),
+       logic (chapter 6 begun 2026-10-10: the flip-flop, the blinker and the one-shot, three pages),
+       the chip. The sandbox desk: built 2026-10-09.
 
 ## Open decisions
 

@@ -1,0 +1,39 @@
+# Diodes as one-way gates: each door's button lights its own LED, and both feed the bell lamp
+# through a diode each, so the bell rings for either while neither door's LED lights for the
+# other. Joined with plain copper, either button lights both LEDs.
+name: Which door
+customer: Mrs Ek
+fee: 55
+note: Upstairs I can hear the doorbell but not which door it is, and I've walked down to the wrong one a hundred times. Could each door have its own light in the hall, red for the front and green for the back, while the bell still rings for both? PB1 is the front door, PB2 the back, LP1 the bell.
+battery: 2850
+book: diodes
+part: B battery 4.5 0.45 N
+part: P button N
+part: Q button N
+part: L led red N
+part: M led green N
+part: X lamp 15 1.35 N
+part: R resistor 150 0.25 N
+part: S resistor 150 0.25 N
+drawer: diode x2 0.40
+case: front: red | set PB1 on | lit LED1 5m 20m
+case: front: not green | set PB1 on | dark LED2
+case: front: the bell | set PB1 on | lit LP1 150m 350m
+case: back: green | set PB2 on | lit LED2 5m 20m
+case: back: not red | set PB2 on | dark LED1
+case: back: the bell | set PB2 on | lit LP1 150m 350m
+master-part: D diode W
+master-part: E diode E
+master: .┌─┬───┐..
+master: .│.P...Q..
+master: .B.├D┬E┤..
+master: .│.L.X.M..
+master: .│.R.│.S..
+master: .└─┴─┴─┘..
+grid:
+..........
+...P...Q..
+.B........
+...L.X.M..
+...R...S..
+..........

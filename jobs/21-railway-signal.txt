@@ -1,0 +1,36 @@
+# NOT, with a relay: an NC contact is closed exactly when its coil is off. The track contact SW1
+# lights the red LED directly and feeds the relay's coil; the green LED runs through the NC
+# contact, so it goes out when the train arrives. An NO relay gets it backwards.
+name: Railway signal
+customer: Mr Nilsson
+fee: 55
+note: The model railway's station needs a signal: red while a train stands on the platform track, green when it's clear. SW1 is the track contact, closed while a train is on it. Red I can manage, a lamp through the contact. Green is the puzzle: it has to go out when the contact closes.
+battery: 0
+book: relays, relay-logic
+part: B battery 9 1.5 N
+part: S switch off W
+part: D led red N
+part: G led green N
+drawer: resistor 470 0.25 x2 0.10
+drawer: relay 9 x1 1.80
+drawer: relay 9 nc x1 1.80
+case: train: red lit | set SW1 on | lit LED1 5m 20m
+case: train: green out | set SW1 on | dark LED2
+case: clear: green lit | set SW1 off | lit LED2 5m 20m
+case: clear: red out | set SW1 off | dark LED1
+master-part: K relay 9 nc N
+master-part: R resistor 470 0.25 W
+master-part: Q resistor 470 0.25 W
+master: ..........
+master: .┌─S┬─R─┐.
+master: .├──K─Q┐D.
+master: .B..│..G│.
+master: .└──┴──┴┘.
+master: ..........
+grid:
+..........
+...S......
+........D.
+.B.....G..
+..........
+..........

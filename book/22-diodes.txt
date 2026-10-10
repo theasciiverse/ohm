@@ -1,0 +1,17 @@
+title: Diodes
+unlock: flash-battery
+para: A diode lets current through one way only. From its anode to its cathode (the end with the band) it conducts once there is about 0.7 V across it; the other way it blocks, like an open switch. An LED is a diode too, one that happens to give light, with a bigger forward voltage.
+para: That makes it a guard. In series with a battery it passes current the right way round and nothing at all if the battery goes in backwards, at the price of the 0.7 V it takes.
+para: It also makes one-way gates. Two diodes feeding one lamp let either of two switches light it, while neither switch can reach back through the other's diode to light what is on the other side.
+para: The 1N4001 in the drawers carries 1 A. Flip SW1 here and read the 0.7 V across D1.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume III (Semiconductors), section 3.1, Introduction to diodes and rectifiers: about 0.7 V forward for silicon, blocking when reverse biased, the stripe marking the cathode.
+source: Vishay, 1N4001 to 1N4007 datasheet: 1.0 A average forward current, 1.1 V forward at 1 A, 50 V reverse for the 1N4001. The model is the Motorola databook's SPICE model (IS 14.11 nA, N 1.984, RS 33.9 mΩ).
+part: B battery 4.5 0.45 N
+part: S switch off W
+part: D diode W
+part: R resistor 150 0.25 W
+part: L led red N
+grid:
+┌─S─D─R┐
+B......L
+└──────┘

@@ -1,0 +1,28 @@
+title: One-shots
+unlock: quiz-timer
+para: Between the flip-flop, which stays put, and the blinker, which never rests, sits the one-shot: one cross link a resistor, the other a capacitor. It has one resting state and one it can only visit. Here Q1 rests on, fed from plus through 82 kΩ, and its low collector starves Q2 through the 47 kΩ link: red.
+para: A press feeds Q2's base through 10 kΩ. Q2 turns on, its collector falls, and the capacitor carries the fall to Q1's base, pushing it below minus: Q1 turns off, its collector rises and keeps Q2 on through the link even after the button is let go. Green.
+para: Q1's base climbs back through its 82 kΩ, the blinker's half period: a little under 0.7 x R x C, here about 5 s with 100 µF. At 0.6 V Q1 turns on, Q2 off, and it rests red again until the next press.
+para: Keep the 10 kΩ: a button straight from plus to a base gives it all the current it can take, and the transistor burns.
+para: Click PB1, then click it again to let go, and watch the green.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume IV (Digital), section 10.1, Digital logic with feedback: the monostable multivibrator, with one stable state, that returns to it by itself after being triggered. The timing is the capacitor's charging curve: Paul Horowitz and Winfield Hill, The Art of Electronics (3rd edition, 2015), section 1.4.2, RC circuits.
+part: B battery 9 1.5 N
+part: L led red N
+part: M led green N
+part: P button N
+part: R resistor 470 0.25 N
+part: T resistor 82k 0.25 N
+part: S resistor 10k 0.25 N
+part: V resistor 470 0.25 N
+part: K resistor 47k 0.25 W
+part: C cap 100u 16 E
+part: Q npn N
+part: q npn flip N
+grid:
+.┌─┬─┬─┬─┐
+.R.T.P.V.│
+.L.│.S.M.│
+.├Kx─┤.│.B
+.│.├─xC┤.│
+.Q─┘.└─q.│
+.└─────┴─┘

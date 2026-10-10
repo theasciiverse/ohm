@@ -185,7 +185,7 @@ fn boards() {
         &porch_rows,
         &[
             ('B', Kind::Battery { volts: 4.5, r_int: 0.45 }, Dir::N),
-            ('P', Kind::Button { held: false }, Dir::W),
+            ('P', Kind::Button { held: false, nc: false }, Dir::W),
             ('X', Kind::Lamp { ohms: 15.0, watts: 1.35 }, Dir::N),
         ],
     )

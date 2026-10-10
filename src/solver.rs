@@ -34,6 +34,17 @@ const FUSE_LIMIT: f64 = 2.56;
 const CAP_TAU: f64 = 0.5;
 const CAP_SURGE: f64 = 1.15;
 const CAP_REVERSE: f64 = 1.5;
+/// A relay, after Sanyou's SRD series (datasheet V3.2): it pulls in at 75 % of its rated coil
+/// voltage and drops out at 5 % (the sheet's worst cases), operates in 8 ms and releases in
+/// 5 ms (the sheet's maxima), and its coil takes 0.36 W at its rating and no more than 130 % of
+/// its rated voltage. Past that the coil heats with a 2 s time constant (chosen) and burns open.
+pub const RELAY_PULL: f64 = 0.75;
+pub const RELAY_DROP: f64 = 0.05;
+pub const RELAY_OPERATE: f64 = 0.008;
+pub const RELAY_RELEASE: f64 = 0.005;
+pub const RELAY_WATTS: f64 = 0.36;
+pub const RELAY_MAX: f64 = 1.3;
+const COIL_TAU: f64 = 2.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Node(usize);
@@ -84,6 +95,38 @@ impl Led {
     }
 }
 
+/// An NPN transistor's electrical character, for the Ebers-Moll transport model.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Npn {
+    /// Transport saturation current.
+    pub is: f64,
+    /// Forward and reverse current gain.
+    pub bf: f64,
+    pub br: f64,
+    /// Power it can turn into heat, watts, and the collector current it is rated for, amps.
+    pub watts: f64,
+    pub i_max: f64,
+    /// Junction capacitances, base to emitter and base to collector, farads: they give a
+    /// transistor flipping a circuit over (a blinker) the moment it takes, without which the
+    /// flip would have to happen in no time at all.
+    pub cbe: f64,
+    pub cbc: f64,
+}
+
+impl Npn {
+    /// BC547B: IS, BF and BR from NXP's SPICE model (BF 294, the datasheet's typical hFE 290
+    /// at 2 mA); 625 mW, 100 mA and the capacitances (input 10 pF, output 1.7 pF, typical)
+    /// from onsemi's BC546 to BC548 datasheet.
+    pub const BC547B: Npn = Npn { is: 2.39e-14, bf: 294.3, br: 7.946, watts: 0.625, i_max: 0.1, cbe: 10e-12, cbc: 1.7e-12 };
+}
+
+impl Led {
+    /// A rectifier diode, 1N4001: IS 14.11 nA, N 1.984, RS 33.9 mohm (the Motorola databook's
+    /// SPICE model), which puts 0.69 V across it at 10 mA and 0.96 V at 1 A (Vishay's sheet:
+    /// 1.1 V at most); rated 1 A, and it burns at 3 A held (chosen).
+    pub const N4001: Led = Led { vf: 0.691, rs: 0.0339, n: 1.984, i_max: 1.0, i_burn: 3.0 };
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Kind {
     /// `watts` is the power rating; infinite for parts that never burn (a lamp, a test load).
@@ -100,6 +143,11 @@ enum Kind {
     /// `volts` is an electrolytic's rating, positive terminal `a`; infinite for a capacitor
     /// that has no polarity and never fails (a ceramic).
     Capacitor { farads: f64, volts: f64 },
+    /// A relay's coil, rated `volts`: a resistance whose current works the `contact`, a switch
+    /// part of its own, after the operate or release time. `nc`: the contact is closed at rest.
+    Coil { ohms: f64, volts: f64, contact: usize, nc: bool },
+    /// Collector `a`, emitter `b`, base `mid`.
+    Npn(Npn),
 }
 
 #[derive(Clone, Debug)]
@@ -114,14 +162,21 @@ struct Part {
     // State carried between solves.
     burnt: bool,
     heat: f64,
-    /// Junction voltage at the last Newton iterate (LED).
+    /// Junction voltage at the last Newton iterate (LED; a transistor's base-emitter), and a
+    /// transistor's base-collector.
     vd: f64,
-    /// Capacitor voltage after the last step.
+    vd2: f64,
+    /// Capacitor voltage after the last step; a transistor's base-emitter, and its
+    /// base-collector in `cap_v2`.
     cap_v: f64,
-    /// Supply is in current limit.
+    cap_v2: f64,
+    /// Supply is in current limit; a relay is energised (its contact has moved).
     cc: bool,
-    // Results of the last solve.
+    /// How long a relay's coil has wanted the other state, seconds.
+    timer: f64,
+    // Results of the last solve; `base` is a transistor's base current.
     current: f64,
+    base: f64,
     power: f64,
 }
 
@@ -140,6 +195,8 @@ pub struct Circuit {
     x: Vec<f64>,
     /// Simulated time, seconds.
     pub time: f64,
+    /// No step taken yet: the first starts with nanosecond steps (see `step`).
+    fresh: bool,
 }
 
 impl Default for Circuit {
@@ -150,7 +207,7 @@ impl Default for Circuit {
 
 impl Circuit {
     pub fn new() -> Self {
-        Circuit { nodes: 1, branches: 0, parts: Vec::new(), x: Vec::new(), time: 0.0 }
+        Circuit { nodes: 1, branches: 0, parts: Vec::new(), x: Vec::new(), time: 0.0, fresh: true }
     }
 
     pub fn node(&mut self) -> Node {
@@ -173,9 +230,13 @@ impl Circuit {
             burnt: false,
             heat: 0.0,
             vd: 0.0,
+            vd2: 0.0,
             cap_v: 0.0,
+            cap_v2: 0.0,
             cc: false,
+            timer: 0.0,
             current: 0.0,
+            base: 0.0,
             power: 0.0,
         });
         PartId(self.parts.len() - 1)
@@ -221,6 +282,54 @@ impl Circuit {
     /// its surge voltage or reversed.
     pub fn electrolytic(&mut self, pos: Node, neg: Node, farads: f64, volts: f64) -> PartId {
         self.add(Kind::Capacitor { farads, volts }, pos, neg, false, false)
+    }
+
+    /// An NPN transistor: collector, base, emitter.
+    ///
+    /// No two transistors are quite alike: each one added has a saturation current 1 % above
+    /// the last (chosen; real spread is far wider), so a symmetric circuit has a side to tip to.
+    pub fn npn(&mut self, c: Node, base: Node, e: Node, model: Npn) -> PartId {
+        let k = self.parts.iter().filter(|p| matches!(p.kind, Kind::Npn(_))).count();
+        let model = Npn { is: model.is * (1.0 + 0.01 * k as f64), ..model };
+        let id = self.add(Kind::Npn(model), c, e, false, false);
+        self.parts[id.0].mid = base.0;
+        id
+    }
+
+    /// A transistor's base current, into the base.
+    pub fn base_current(&self, id: PartId) -> f64 {
+        self.parts[id.0].base
+    }
+
+    /// A relay rated `volts`: its coil between `coil_a` and `coil_b` (resistance from the
+    /// coil's power, as on the SRD sheet: 400 Ω at 12 V), its contact between `sw_a` and `sw_b`,
+    /// open at rest, or closed at rest if `nc`. Returns the coil.
+    pub fn relay(&mut self, coil_a: Node, coil_b: Node, sw_a: Node, sw_b: Node, volts: f64, nc: bool) -> PartId {
+        let contact = self.switch(sw_a, sw_b, nc).0;
+        let ohms = volts * volts / RELAY_WATTS;
+        self.add(Kind::Coil { ohms, volts, contact, nc }, coil_a, coil_b, false, false)
+    }
+
+    /// A relay's contact, as a part of its own.
+    pub fn contact(&self, coil: PartId) -> Option<PartId> {
+        match self.parts[coil.0].kind {
+            Kind::Coil { contact, .. } => Some(PartId(contact)),
+            _ => None,
+        }
+    }
+
+    /// The relay has pulled in: its contact has moved away from rest.
+    pub fn energised(&self, coil: PartId) -> bool {
+        self.parts[coil.0].cc
+    }
+
+    /// Puts a relay pulled in or at rest at once, as if it had been so beforehand.
+    pub fn set_energised(&mut self, coil: PartId, on: bool) {
+        if let Kind::Coil { contact, nc, .. } = self.parts[coil.0].kind {
+            self.parts[coil.0].cc = on;
+            self.parts[coil.0].timer = 0.0;
+            self.set_switch(PartId(contact), on != nc);
+        }
     }
 
     /// A capacitor's voltage, positive terminal over negative.
@@ -291,8 +400,54 @@ impl Circuit {
     }
 
     /// Moves time on by `dt` seconds: one backward-Euler step, then heat and burn-out.
+    ///
+    /// The first step after a circuit is built starts at a nanosecond and grows by a tenth each
+    /// time until it has covered `dt` (about 150 small steps). Backward Euler damps anything
+    /// faster than its step, which would hold a flip-flop balanced half on, half off at
+    /// power-up; at nanoseconds it tips over one way, as a real one does.
     pub fn step(&mut self, dt: f64) -> Result<(), SolveError> {
-        self.solve(Mode::Step(dt))?;
+        if !std::mem::take(&mut self.fresh) {
+            return self.step_within(dt, 0);
+        }
+        let (mut done, mut h) = (0.0, 1e-9f64);
+        while done < dt {
+            let take = h.min(dt - done);
+            self.step_within(take, 0)?;
+            done += take;
+            h *= 1.1;
+        }
+        Ok(())
+    }
+
+    /// A transistor's junction state (its two junction voltages, as Newton last left them and
+    /// as its capacitances hold them), to carry over a rebuild.
+    pub fn junctions(&self, id: PartId) -> [f64; 4] {
+        let p = &self.parts[id.0];
+        [p.vd, p.vd2, p.cap_v, p.cap_v2]
+    }
+
+    pub fn set_junctions(&mut self, id: PartId, j: [f64; 4]) {
+        let p = &mut self.parts[id.0];
+        [p.vd, p.vd2, p.cap_v, p.cap_v2] = j;
+    }
+
+    /// A step, split in halves when Newton can't settle it: where a circuit flips over (a
+    /// transistor blinker), the jump is too big to take in one.
+    fn step_within(&mut self, dt: f64, depth: u32) -> Result<(), SolveError> {
+        let saved: Vec<(f64, f64)> = self.parts.iter().map(|p| (p.vd, p.vd2)).collect();
+        let x = self.x.clone();
+        match self.solve(Mode::Step(dt)) {
+            Err(SolveError::NoConvergence) if depth < 24 => {
+                self.x = x;
+                for (p, (vd, vd2)) in self.parts.iter_mut().zip(saved) {
+                    p.vd = vd;
+                    p.vd2 = vd2;
+                }
+                self.step_within(dt / 2.0, depth + 1)?;
+                return self.step_within(dt / 2.0, depth + 1);
+            }
+            r => r?,
+        }
         if self.heat_up(dt) {
             // Something burnt open during this step: solve the step again without it.
             self.solve(Mode::Step(dt))?;
@@ -301,9 +456,41 @@ impl Circuit {
             if let Kind::Capacitor { .. } = p.kind {
                 p.cap_v = vdiff(&self.x, p.a, p.b);
             }
+            if let Kind::Npn(_) = p.kind {
+                p.cap_v = vdiff(&self.x, p.mid, p.b);
+                p.cap_v2 = vdiff(&self.x, p.mid, p.a);
+            }
         }
+        self.move_contacts(dt);
         self.time += dt;
         Ok(())
+    }
+
+    /// Each relay's coil pulls its contact over once it has carried enough current for the
+    /// operate time, and lets go once it has carried too little for the release time. The
+    /// contact moves at the end of the step, so the next step sees it.
+    fn move_contacts(&mut self, dt: f64) {
+        for k in 0..self.parts.len() {
+            let p = &self.parts[k];
+            let Kind::Coil { ohms, volts, contact, nc } = p.kind else { continue };
+            // The magnet goes by the coil's current, so a burnt coil lets go.
+            let v = p.current.abs() * ohms;
+            let want = if p.cc { v >= RELAY_DROP * volts } else { v >= RELAY_PULL * volts };
+            let p = &mut self.parts[k];
+            if want == p.cc {
+                p.timer = 0.0;
+                continue;
+            }
+            p.timer += dt;
+            let wait = if want { RELAY_OPERATE } else { RELAY_RELEASE };
+            if p.timer >= wait - dt / 2.0 {
+                p.cc = want;
+                p.timer = 0.0;
+                if let Kind::Switch { closed } = &mut self.parts[contact].kind {
+                    *closed = want != nc;
+                }
+            }
+        }
     }
 
     /// Heats every part toward its load; true if anything burnt open.
@@ -327,6 +514,11 @@ impl Circuit {
                     let v = vdiff(x, p.a, p.b);
                     ((v / (CAP_SURGE * volts)).max(-v / CAP_REVERSE).max(0.0).powi(2), CAP_TAU, 1.0)
                 }
+                // At its maximum allowable voltage a coil takes 1.69 times its rated power.
+                Kind::Coil { .. } => (p.power / (RELAY_WATTS * RELAY_MAX * RELAY_MAX), COIL_TAU, 1.0),
+                // Heat by power or by collector current, whichever is further past its rating;
+                // like a resistor it burns at twice (chosen).
+                Kind::Npn(q) => ((p.power / q.watts).max(p.current.abs() / q.i_max), 0.5, 2.0),
                 _ => continue,
             };
             p.heat += (load - p.heat) * (1.0 - (-dt / tau).exp());
@@ -394,6 +586,16 @@ impl Circuit {
                     }
                     p.vd = limited;
                 }
+                if let Kind::Npn(q) = p.kind {
+                    let vcrit = VT * (VT / (std::f64::consts::SQRT_2 * q.is)).ln();
+                    for (raw, old) in [(vdiff(&x, p.mid, p.b), &mut p.vd), (vdiff(&x, p.mid, p.a), &mut p.vd2)] {
+                        let limited = pnjlim(raw, *old, VT, vcrit);
+                        if limited != raw || (limited - *old).abs() > 1e-7 {
+                            settled = false;
+                        }
+                        *old = limited;
+                    }
+                }
             }
             self.x = x;
             if settled {
@@ -408,7 +610,7 @@ impl Circuit {
             return;
         }
         match p.kind {
-            Kind::Resistor { ohms, .. } | Kind::Fuse { ohms, .. } => m.g(p.a, p.b, 1.0 / ohms),
+            Kind::Resistor { ohms, .. } | Kind::Fuse { ohms, .. } | Kind::Coil { ohms, .. } => m.g(p.a, p.b, 1.0 / ohms),
             Kind::Switch { closed } => {
                 if closed {
                     m.g(p.a, p.b, 1.0 / R_CLOSED);
@@ -443,6 +645,34 @@ impl Circuit {
                 m.g(p.mid, p.b, gd);
                 m.isource(p.mid, p.b, id - gd * p.vd);
             }
+            Kind::Npn(q) => {
+                // Ebers-Moll transport model: a diode base to emitter, a diode base to
+                // collector, and the transport current collector to emitter.
+                let (c, b, e) = (p.a, p.mid, p.b);
+                let (ef, er) = ((p.vd / VT).exp(), (p.vd2 / VT).exp());
+                let (gf, gr) = (q.is / VT * ef, q.is / VT * er);
+                let (ibe, gbe) = (q.is / q.bf * (ef - 1.0), gf / q.bf + GMIN);
+                let (ibc, gbc) = (q.is / q.br * (er - 1.0), gr / q.br + GMIN);
+                m.g(b, e, gbe);
+                m.isource(b, e, ibe - gbe * p.vd);
+                m.g(b, c, gbc);
+                m.isource(b, c, ibc - gbc * p.vd2);
+                let ict = q.is * (ef - er);
+                // Linearised: ict + gf (vbe - vd) - gr (vbc - vd2), out of c into e.
+                m.node(c, b, gf - gr);
+                m.node(c, e, -gf);
+                m.node(c, c, gr);
+                m.node(e, b, -(gf - gr));
+                m.node(e, e, gf);
+                m.node(e, c, -gr);
+                m.isource(c, e, ict - gf * p.vd + gr * p.vd2);
+                if let Mode::Step(dt) = mode {
+                    m.g(b, e, q.cbe / dt);
+                    m.isource(e, b, q.cbe / dt * p.cap_v);
+                    m.g(b, c, q.cbc / dt);
+                    m.isource(c, b, q.cbc / dt * p.cap_v2);
+                }
+            }
             Kind::Capacitor { farads, .. } => {
                 if let Mode::Step(dt) = mode {
                     let g = farads / dt;
@@ -463,19 +693,31 @@ impl Circuit {
                 0.0
             } else {
                 match p.kind {
-                    Kind::Resistor { ohms, .. } | Kind::Fuse { ohms, .. } => v / ohms,
+                    Kind::Resistor { ohms, .. } | Kind::Fuse { ohms, .. } | Kind::Coil { ohms, .. } => v / ohms,
                     Kind::Switch { closed } => if closed { v / R_CLOSED } else { 0.0 },
                     Kind::Battery { .. } => -x[base + p.branch.unwrap()],
                     Kind::Supply { limit, .. } => {
                         if p.cc { limit } else { -x[base + p.branch.unwrap()] }
                     }
                     Kind::Led(led) => (v - vdiff(x, p.mid, p.b)) / led.rs,
+                    Kind::Npn(_) => 0.0,
                     Kind::Capacitor { farads, .. } => match mode {
                         Mode::Step(dt) => farads / dt * (v - p.cap_v),
                         Mode::Dc => 0.0,
                     },
                 }
             };
+            if let (Kind::Npn(q), false) = (p.kind, p.burnt) {
+                let (vbe, vbc) = (vdiff(x, p.mid, p.b), vdiff(x, p.mid, p.a));
+                let (ef, er) = ((vbe / VT).exp(), (vbc / VT).exp());
+                let ibe = q.is / q.bf * (ef - 1.0);
+                let ibc = q.is / q.br * (er - 1.0);
+                p.base = ibe + ibc;
+                p.current = q.is * (ef - er) - ibc;
+                p.power = v * p.current + vbe * p.base;
+                continue;
+            }
+            p.base = 0.0;
             p.current = i;
             p.power = v * i;
         }
@@ -899,6 +1141,217 @@ mod tests {
         c.solve_dc().unwrap();
         close(c.voltage(x), 0.0, 1e-9);
         close(c.voltage(y), 0.0, 1e-9);
+    }
+
+    #[test]
+    fn a_relay_pulls_in_after_its_operate_time_and_closes_its_contact() {
+        let mut c = Circuit::new();
+        let pos = c.node();
+        let lamp = c.node();
+        c.battery(pos, GROUND, 12.0, 0.0);
+        let k = c.relay(pos, GROUND, pos, lamp, 12.0, false);
+        let load = c.resistor(lamp, GROUND, 24.0);
+        let mut pulled = None;
+        for n in 1..=50 {
+            c.step(0.001).unwrap();
+            if pulled.is_none() && c.energised(k) {
+                pulled = Some(n);
+            }
+        }
+        assert_eq!(pulled, Some(8), "the SRD operates within 8 ms");
+        close(c.current(k), 0.030, 1e-4);
+        close(c.current(load), 0.5, 1e-3);
+    }
+
+    #[test]
+    fn a_relay_holds_between_its_drop_out_and_pull_in_voltages() {
+        // 400 Ω coil behind 400 Ω: 6 V, half its rating.
+        let run = |start_on: bool| {
+            let mut c = Circuit::new();
+            let pos = c.node();
+            let a = c.node();
+            let out = c.node();
+            c.battery(pos, GROUND, 12.0, 0.0);
+            c.resistor(pos, a, 400.0);
+            let k = c.relay(a, GROUND, pos, out, 12.0, false);
+            c.resistor(out, GROUND, 1000.0);
+            c.set_energised(k, start_on);
+            for _ in 0..200 {
+                c.step(0.001).unwrap();
+            }
+            c.energised(k)
+        };
+        assert!(!run(false), "6 V can't pull a 12 V relay in");
+        assert!(run(true), "but it holds one that is already in");
+    }
+
+    #[test]
+    fn a_relay_through_its_own_closed_contact_buzzes() {
+        let mut c = Circuit::new();
+        let pos = c.node();
+        let a = c.node();
+        c.battery(pos, GROUND, 12.0, 0.0);
+        let k = c.relay(a, GROUND, pos, a, 12.0, true);
+        let mut flips = 0;
+        let mut was = false;
+        for _ in 0..1000 {
+            c.step(0.001).unwrap();
+            if c.energised(k) != was {
+                flips += 1;
+                was = !was;
+            }
+        }
+        let hz = flips as f64 / 2.0;
+        assert!((60.0..90.0).contains(&hz), "{hz} Hz");
+    }
+
+    #[test]
+    fn a_capacitor_across_the_coil_holds_a_relay_in_for_r_c_ln_20() {
+        let mut c = Circuit::new();
+        let pos = c.node();
+        let a = c.node();
+        let out = c.node();
+        c.battery(pos, GROUND, 12.0, 0.0);
+        let sw = c.switch(pos, a, true);
+        let k = c.relay(a, GROUND, pos, out, 12.0, false);
+        c.resistor(out, GROUND, 1000.0);
+        c.electrolytic(a, GROUND, 1000e-6, 25.0);
+        for _ in 0..3000 {
+            c.step(0.001).unwrap();
+        }
+        assert!(c.energised(k));
+        c.set_switch(sw, false);
+        let mut held = 0.0;
+        while c.energised(k) && held < 5.0 {
+            c.step(0.001).unwrap();
+            held += 0.001;
+        }
+        // 400 Ω and 1000 µF from 12 V down to the 0.6 V drop-out: 0.4 s ln 20 = 1.20 s.
+        close(held, 0.4 * 20f64.ln(), 0.02);
+    }
+
+    #[test]
+    fn a_coil_takes_130_percent_but_burns_past_it() {
+        let run = |volts: f64| {
+            let mut c = Circuit::new();
+            let pos = c.node();
+            c.battery(pos, GROUND, volts, 0.0);
+            let k = c.relay(pos, GROUND, pos, GROUND, 12.0, false);
+            for _ in 0..20000 {
+                c.step(0.001).unwrap();
+            }
+            c.burnt(k)
+        };
+        assert!(!run(15.0));
+        assert!(run(18.0));
+    }
+
+    #[test]
+    fn a_1n4001_drops_about_0_7_v_and_blocks_backwards() {
+        let run = |volts: f64| {
+            let mut c = Circuit::new();
+            let pos = c.node();
+            let a = c.node();
+            c.battery(pos, GROUND, volts, 0.0);
+            c.resistor(pos, a, 470.0);
+            let d = c.led(a, GROUND, Led::N4001);
+            c.solve_dc().unwrap();
+            (c.voltage(a), c.current(d))
+        };
+        let (v, i) = run(9.0);
+        assert!((0.68..0.76).contains(&v), "{v}");
+        close(i, (9.0 - v) / 470.0, 1e-6);
+        assert!(run(-9.0).1.abs() < 1e-7);
+    }
+
+    #[test]
+    fn a_bc547b_amplifies_its_base_current_about_290_times() {
+        let mut c = Circuit::new();
+        let vcc = c.node();
+        let b = c.node();
+        let col = c.node();
+        c.battery(vcc, GROUND, 9.0, 0.0);
+        c.resistor(vcc, b, 1e6);
+        c.resistor(vcc, col, 1000.0);
+        let q = c.npn(col, b, GROUND, Npn::BC547B);
+        c.solve_dc().unwrap();
+        let beta = c.current(q) / c.base_current(q);
+        assert!((beta - 294.0).abs() < 5.0, "{beta}");
+        let vbe = c.voltage(b);
+        assert!((0.55..0.7).contains(&vbe), "VBE {vbe}");
+    }
+
+    #[test]
+    fn a_bc547b_switched_hard_on_saturates() {
+        // 10 mA collector, 0.85 mA base: the datasheet gives 0.09 V typical, 0.25 V at most, at
+        // 10 mA with 0.5 mA in.
+        let mut c = Circuit::new();
+        let vcc = c.node();
+        let b = c.node();
+        let col = c.node();
+        c.battery(vcc, GROUND, 9.0, 0.0);
+        c.resistor(vcc, b, 10e3);
+        c.resistor(vcc, col, 900.0);
+        let q = c.npn(col, b, GROUND, Npn::BC547B);
+        c.solve_dc().unwrap();
+        let vce = c.voltage(col);
+        assert!(vce > 0.0 && vce < 0.25, "VCE(sat) {vce}");
+        close(c.current(q), (9.0 - vce) / 900.0, 1e-6);
+    }
+
+    #[test]
+    fn two_transistors_and_two_capacitors_blink_at_1_over_1_4_r_c() {
+        // The astable multivibrator: each side's collector through a capacitor to the other's
+        // base. Each half lasts about ln 2 x R C, 0.69 x 47k x 10 uF = 0.33 s.
+        let mut c = Circuit::new();
+        let vcc = c.node();
+        let (c1, c2, b1, b2) = (c.node(), c.node(), c.node(), c.node());
+        c.battery(vcc, GROUND, 9.0, 0.0);
+        c.resistor(vcc, c1, 1000.0);
+        c.resistor(vcc, c2, 1000.0);
+        c.resistor(vcc, b1, 47e3);
+        c.resistor(vcc, b2, 47e3);
+        c.capacitor(c1, b2, 10e-6);
+        c.capacitor(c2, b1, 10e-6);
+        let q1 = c.npn(c1, b1, GROUND, Npn::BC547B);
+        c.npn(c2, b2, GROUND, Npn::BC547B);
+        let mut rises = Vec::new();
+        let mut was = false;
+        for n in 0..5000 {
+            c.step(0.001).unwrap();
+            let on = c.current(q1) > 0.004;
+            if on && !was && n > 500 {
+                rises.push(n as f64 * 0.001);
+            }
+            was = on;
+        }
+        assert!(rises.len() >= 3, "{rises:?}");
+        let period = (rises[rises.len() - 1] - rises[0]) / (rises.len() - 1) as f64;
+        close(period, 2.0 * 2f64.ln() * 47e3 * 10e-6, 0.08);
+    }
+
+    #[test]
+    fn a_flip_flop_comes_up_one_side_on_not_balanced() {
+        // Two BC547s, each base fed through 10k from the other's collector, 470 in each
+        // collector, an LED in each emitter. Balanced half on, half off is a solution, but an
+        // unstable one: it must tip over.
+        let mut c = Circuit::new();
+        let vcc = c.node();
+        let (c1, c2, b1, b2, e1, e2) = (c.node(), c.node(), c.node(), c.node(), c.node(), c.node());
+        c.battery(vcc, GROUND, 9.0, 1.5);
+        c.resistor(vcc, c1, 470.0);
+        c.resistor(vcc, c2, 470.0);
+        c.resistor(c1, b2, 10e3);
+        c.resistor(c2, b1, 10e3);
+        c.npn(c1, b1, e1, Npn::BC547B);
+        c.npn(c2, b2, e2, Npn::BC547B);
+        let l1 = c.led(e1, GROUND, Led::RED);
+        let l2 = c.led(e2, GROUND, Led::RED);
+        for _ in 0..100 {
+            c.step(0.001).unwrap();
+        }
+        let (i1, i2) = (c.current(l1), c.current(l2));
+        assert!(i1.min(i2) < 1e-4 && i1.max(i2) > 0.010, "{i1} {i2}");
     }
 
     #[test]

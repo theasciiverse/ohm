@@ -1,0 +1,34 @@
+# A relay that holds itself in. START (PB1) pulls the relay in, and its own contact, wired across
+# START, keeps the coil fed once START is let go; STOP (PB2, closed until pressed) breaks the
+# coil's feed and it drops out. The lamp hangs on the held line beside the coil. Without the
+# holding contact the roaster stops when START is let go; with an NC relay it runs from the
+# start and can't be stopped for long.
+name: Coffee roaster
+customer: Café Ohlsson
+fee: 60
+note: Our new coffee roaster has two buttons, a black START and a red STOP, and nothing between them yet. Press START and the drum should turn and keep turning after you let go, until somebody presses STOP. LP1 stands for the drum's motor. I'm told a relay can remember?
+battery: 0
+book: relays, self-holding
+part: B battery 12 0.05 N
+part: Q button W
+part: P stop-button W
+part: L lamp 28.8 5 N
+drawer: relay 12 x1 1.80
+drawer: relay 12 nc x1 1.80
+case: waits for START | dark LP1 at 1
+case: START: runs on after it is let go | at 0.1 set PB1 on | at 0.4 set PB1 off | lit LP1 350m 450m at 2
+case: STOP: stops it | at 0.1 set PB1 on | at 0.4 set PB1 off | at 1 set PB2 on | at 1.3 set PB2 off | dark LP1 at 2.5
+master-part: K relay 12 N
+master: ..........
+master: .┌─┬Q┬P─┐.
+master: .L.├┐│..│.
+master: .│.└K┘..B.
+master: .└──┴───┘.
+master: ..........
+grid:
+..........
+....Q.P...
+.L........
+........B.
+..........
+..........

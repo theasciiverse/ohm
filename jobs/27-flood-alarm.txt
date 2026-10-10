@@ -1,0 +1,35 @@
+# A transistor turns a tiny current into a big one. Water between the probes (R1, 10 kohm, chosen)
+# lets only 0.7 mA through an LED, too dim to see across a cellar; into a BC547's base it lets
+# about 290 times as much through the collector, enough to switch it fully on, and the collector
+# resistor sets the LED's current: 470 ohm gives 14.6 mA, 220 too much, 1k too little.
+name: Flood alarm
+customer: Mrs Ek
+fee: 55
+note: Twice this spring the cellar has flooded and nobody noticed until the potatoes floated. I've put two copper probes on the floor: when water bridges them, a little current can pass, about as much as through R1. A light upstairs should come on bright and clear when that happens. SW1 stands for the water.
+battery: 625
+book: transistors
+part: B battery 9 1.5 N
+part: S switch off W
+part: W resistor 10k 0.25 W
+part: L led red W
+drawer: npn x1 0.60
+drawer: resistor 220 0.25 x1 0.10
+drawer: resistor 470 0.25 x1 0.10
+drawer: resistor 1k 0.25 x1 0.10
+case: dry: dark | set SW1 off | dark LED1
+case: water: bright | set SW1 on | lit LED1 10m 20m
+master-part: Q npn W
+master-part: R resistor 470 0.25 W
+master: ..........
+master: .┌─S─W─┐..
+master: .├─R─L─Q┐.
+master: .B......│.
+master: .└──────┘.
+master: ..........
+grid:
+..........
+...S.W....
+.....L....
+.B........
+..........
+..........

@@ -1,0 +1,19 @@
+title: Transistors
+unlock: flood-alarm
+para: A transistor is a valve for current. A small current into its base, out through its emitter, lets a much bigger one flow from its collector to its emitter: for the BC547 in the drawers about 290 times as big. With no base current, nothing flows at all.
+para: Give the base more than enough and the transistor is fully on, a closed switch between collector and emitter with only a tenth of a volt or so across it. Then what limits the collector's current is whatever else is in its path, so an LED there still needs its resistor.
+para: The base is a diode to the emitter: it needs about 0.65 V before anything happens, and it must be fed through a resistor or it takes far too much. The emitter goes to minus.
+para: Flip SW1 here: 0.8 mA into the base switches 14 mA through the LED.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume III (Semiconductors), section 4.2, The bipolar junction transistor as a switch: a small base current controls a larger collector current; fully on is saturated, fully off cut off.
+source: onsemi, BC546, BC547, BC548 datasheet: hFE for the B group 200 to 450, typically 290, at 2 mA; 100 mA collector current; 625 mW; VBE(on) 0.55 to 0.7 V at 2 mA; VCE(sat) 0.09 V typical at 10 mA.
+part: B battery 9 1.5 N
+part: S switch off W
+part: W resistor 10k 0.25 W
+part: R resistor 470 0.25 W
+part: L led red W
+part: Q npn W
+grid:
+┌─S─W─┐.
+├─R─L─Q┐
+B......│
+└──────┘

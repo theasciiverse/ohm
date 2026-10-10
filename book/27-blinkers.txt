@@ -1,0 +1,26 @@
+title: Blinkers
+unlock: crossing-lights
+para: Take the flip-flop and put a capacitor in each cross link instead of a resistor, and feed each base from plus through its own big resistor. Now neither side can stay on. When one side turns on, its collector drops from near the battery's voltage to nearly nothing, and the capacitor carries that drop straight to the other base, pushing it well below minus and the other side off.
+para: The pushed-down base then climbs back up through its resistor, the way any capacitor charges. When it reaches about 0.6 V that side turns on, its collector drops, and the same thing happens the other way round. It never rests: an astable, or a blinker.
+para: Each half lasts a little under 0.7 x R x C: the base has to climb from as far below minus as the collector fell, back up to 0.6 V, and when the fall is the whole battery that takes ln 2 x R x C, 0.69 R C. An LED in the collector shortens the fall a little, and the time with it. With 82 kΩ and 10 µF each half is about half a second, so each LED flashes about once a second, taking turns. A bigger resistor or capacitor flashes slower. The resistor in each collector only sets the LED's current and lets the capacitor refill quickly.
+para: The two cross links cross over each other, so on a board they need jumpers.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume IV (Digital), section 10.1, Digital logic with feedback: the astable multivibrator, with no stable state, that oscillates by itself. The half period comes from the capacitor's charging curve: Paul Horowitz and Winfield Hill, The Art of Electronics (3rd edition, 2015), section 1.4.2, RC circuits.
+part: B battery 9 1.5 N
+part: L led red N
+part: M led red N
+part: R resistor 470 0.25 N
+part: Y resistor 82k 0.25 N
+part: W resistor 82k 0.25 N
+part: V resistor 470 0.25 N
+part: C cap 10u 16 W
+part: D cap 10u 16 E
+part: Q npn N
+part: q npn flip N
+grid:
+.┌─┬─┬─┬─┐
+.R.Y.W.V.│
+.L.│.│.M.│
+.├Cx─┤.│.B
+.│.├─xD┤.│
+.Q─┘.└─q.│
+.└─────┴─┘

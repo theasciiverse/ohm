@@ -1,0 +1,37 @@
+# A thermistor and a transistor: the thermistor on top, a resistor below, the middle to the base.
+# Cold, the thermistor is about 93 kohm and the base sits near 0.3 V: off. At 4 C it is 27 kohm and
+# with 3.3k below the base gets enough to switch the LED fully on. 2.2k below is too dim at 4 C,
+# 10k lights it in the freezer. Upside down it warns of the cold instead.
+name: Freezer alarm
+customer: Café Ohlsson
+fee: 60
+note: The fridge gauge is a joy, but what we really fear is the chest freezer giving up in the night with all the ice cream inside. Could there be a red light that comes on by itself once it warms to fridge temperature, and stays dark while it's properly frozen? TH1 is the thermistor, inside the freezer.
+battery: 625
+book: transistors, transistor-sensors
+part: B battery 9 1.5 N
+part: T ntc -18 N
+part: L led red N
+drawer: npn x1 0.60
+drawer: resistor 470 0.25 x1 0.10
+drawer: resistor 2k2 0.25 x1 0.10
+drawer: resistor 3k3 0.25 x1 0.10
+drawer: resistor 10k 0.25 x1 0.10
+case: frozen (-18 °C): dark | set TH1 -18 | dark LED1
+case: warm as a fridge (4 °C): warning | set TH1 4 | lit LED1 10m 20m
+case: room warm (20 °C): warning | set TH1 20 | lit LED1 10m 20m
+master-part: C resistor 470 0.25 N
+master-part: Q npn N
+master-part: R resistor 3k3 0.25 N
+master: .┌─┬────┐.
+master: .C.T....│.
+master: .L.│....B.
+master: .Q─┤....│.
+master: .│.R....│.
+master: .└─┴────┘.
+grid:
+..........
+...T......
+.L......B.
+..........
+..........
+..........

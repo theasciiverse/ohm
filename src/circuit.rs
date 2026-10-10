@@ -92,8 +92,8 @@ pub enum Kind {
     Battery { volts: f64, r_int: f64 },
     Supply { volts: f64, limit: f64 },
     Switch { closed: bool },
-    /// A push button: closed only while held.
-    Button { held: bool },
+    /// A push button: closed only while held; `nc`, a stop button: open only while held.
+    Button { held: bool, nc: bool },
     Led(Colour),
     /// From 1 µF up an electrolytic: polarised (pin `a` is +), rated `volts`, vents if
     /// held past its surge voltage or reversed. Below 1 µF a ceramic, which never fails here.
@@ -109,6 +109,16 @@ pub enum Kind {
     /// A potentiometer: `ohms` end to end, the wiper (third pin) `turn` of the way from pin
     /// `a` (0) to pin `b` (1).
     Pot { ohms: f64, turn: f64 },
+    /// A relay with its coil rated `volts`: the coil's legs face `facing` and its opposite, the
+    /// contact's the other two sides. `nc`: the contact is closed at rest (normally closed).
+    Relay { volts: f64, nc: bool },
+    /// A rectifier diode (1N4001): current only from pin `a` (anode) to pin `b` (cathode, the
+    /// band).
+    Diode,
+    /// An NPN transistor (BC547B): collector toward `facing`, emitter opposite, base a quarter
+    /// turn clockwise, like a pot's wiper; `flip`: its legs bent the other way, the base a quarter
+    /// turn anticlockwise.
+    Npn { flip: bool },
 }
 
 /// A fuse's cold resistance (chosen: small next to anything it protects).
@@ -150,6 +160,9 @@ impl Kind {
             Kind::Ldr { .. } => "LDR",
             Kind::Ntc { .. } => "TH",
             Kind::Pot { .. } => "RV",
+            Kind::Relay { .. } => "K",
+            Kind::Diode => "D",
+            Kind::Npn { .. } => "Q",
         }
     }
 
@@ -165,7 +178,8 @@ impl Kind {
     pub fn pins(&self) -> usize {
         match self {
             Kind::TestPoint => 1,
-            Kind::Pot { .. } => 3,
+            Kind::Pot { .. } | Kind::Npn { .. } => 3,
+            Kind::Relay { .. } => 4,
             _ => 2,
         }
     }
@@ -182,6 +196,13 @@ impl Kind {
             (Kind::Pot { .. }, 0) => "first end",
             (Kind::Pot { .. }, 1) => "other end",
             (Kind::Pot { .. }, _) => "wiper (middle leg)",
+            (Kind::Diode, 0) => "anode (+)",
+            (Kind::Diode, _) => "cathode (-, the band)",
+            (Kind::Npn { .. }, 0) => "collector (C)",
+            (Kind::Npn { .. }, 1) => "emitter (E)",
+            (Kind::Npn { .. }, _) => "base (B)",
+            (Kind::Relay { .. }, 0 | 1) => "coil leg",
+            (Kind::Relay { .. }, _) => "contact leg",
             (_, 0) => "first leg",
             _ => "second leg",
         }
@@ -207,7 +228,10 @@ impl Part {
         match self.kind.pins() {
             1 => vec![self.facing],
             // A potentiometer's wiper is a quarter turn clockwise from pin `a`.
+            3 if matches!(self.kind, Kind::Npn { flip: true }) => vec![self.facing, self.facing.opposite(), self.facing.cw().opposite()],
             3 => vec![self.facing, self.facing.opposite(), self.facing.cw()],
+            // A relay: the coil along `facing`, the contact across it.
+            4 => vec![self.facing, self.facing.opposite(), self.facing.cw(), self.facing.cw().opposite()],
             _ => vec![self.facing, self.facing.opposite()],
         }
     }
@@ -582,10 +606,14 @@ pub struct Live {
     pub sim: Circuit,
     nodes: Vec<Node>,
     ids: Vec<Option<PartId>>,
-    /// A potentiometer's second half (wiper to `b`); its first half is in `ids`.
+    /// A part's second element: a potentiometer's second half (wiper to `b`, its first half
+    /// is in `ids`), a relay's contact (its coil is in `ids`).
     lower: Vec<Option<PartId>>,
-    /// Every capacitor's tile and part index, to carry its charge over a rebuild.
+    /// Every capacitor's, relay's and transistor's tile and part index, to carry its charge or
+    /// its state over a rebuild.
     caps: Vec<(Pos, usize)>,
+    /// Each part's kind, to match what is carried over.
+    parts_kind: Vec<Kind>,
 }
 
 impl Live {
@@ -611,7 +639,7 @@ impl Live {
                     Some(sim.supply(inner, pin(1), volts, limit))
                 }
                 Kind::Switch { closed } => Some(sim.switch(pin(0), pin(1), closed)),
-                Kind::Button { held } => Some(sim.switch(pin(0), pin(1), held)),
+                Kind::Button { held, nc } => Some(sim.switch(pin(0), pin(1), held != nc)),
                 Kind::Led(c) => Some(sim.led(pin(0), pin(1), c.led())),
                 Kind::Capacitor { farads, volts } => {
                     caps.push((part.pos, i));
@@ -627,6 +655,17 @@ impl Live {
                     lower[i] = Some(sim.resistor(pin(2), pin(1), (ohms * (1.0 - turn)).max(POT_END)));
                     Some(sim.resistor(pin(0), pin(2), (ohms * turn).max(POT_END)))
                 }
+                Kind::Diode => Some(sim.led(pin(0), pin(1), solver::Led::N4001)),
+                Kind::Npn { .. } => {
+                    caps.push((part.pos, i));
+                    Some(sim.npn(pin(0), pin(2), pin(1), solver::Npn::BC547B))
+                }
+                Kind::Relay { volts, nc } => {
+                    caps.push((part.pos, i));
+                    let coil = sim.relay(pin(0), pin(1), pin(2), pin(3), volts, nc);
+                    lower[i] = sim.contact(coil);
+                    Some(coil)
+                }
             };
             if let Some(id) = id
                 && part.burnt
@@ -635,19 +674,31 @@ impl Live {
             }
             ids.push(id);
         }
-        Live { net, sim, nodes, ids, lower, caps }
+        Live { net, sim, nodes, ids, lower, caps, parts_kind: b.parts.iter().map(|p| p.kind).collect() }
     }
 
-    /// Keeps the charge of every capacitor that sat on the same tile in `old`, so editing the
-    /// board or turning a knob doesn't empty them.
+    /// Keeps the charge of every capacitor, and the state of every relay and transistor, that
+    /// sat on the same tile in `old`, so editing the board or turning a knob doesn't empty a
+    /// capacitor, drop a relay or make a flip-flop forget.
     pub fn keep_charge(&mut self, old: &Live) {
         for &(pos, i) in &self.caps {
             if let Some(&(_, j)) = old.caps.iter().find(|(p, _)| *p == pos)
                 && let (Some(id), Some(was)) = (self.ids[i], old.ids[j])
             {
-                self.sim.set_cap_voltage(id, old.sim.cap_voltage(was));
+                let (new, prev) = (&self.parts_kind[i], &old.parts_kind[j]);
+                match (new, prev) {
+                    (Kind::Relay { .. }, Kind::Relay { .. }) => self.sim.set_energised(id, old.sim.energised(was)),
+                    (Kind::Npn { .. }, Kind::Npn { .. }) => self.sim.set_junctions(id, old.sim.junctions(was)),
+                    (Kind::Capacitor { .. }, Kind::Capacitor { .. }) => self.sim.set_cap_voltage(id, old.sim.cap_voltage(was)),
+                    _ => {}
+                }
             }
         }
+    }
+
+    /// A relay has pulled in.
+    pub fn energised(&self, part: usize) -> bool {
+        self.ids[part].is_some_and(|id| self.sim.energised(id))
     }
 
     /// Flips a switch or a button in the running circuit, without rebuilding it.
@@ -696,6 +747,14 @@ impl Live {
             }
             let into_net: Vec<f64> = if part.kind.is_source() {
                 vec![r.amps, -r.amps]
+            } else if let (Kind::Npn { .. }, Some(id)) = (part.kind, self.ids[i]) {
+                // A transistor: collector and base currents in, their sum out of the emitter.
+                let ib = self.sim.base_current(id);
+                vec![-r.amps, r.amps + ib, -ib]
+            } else if let (Kind::Relay { .. }, Some(contact)) = (part.kind, self.lower[i]) {
+                // A relay: the coil's current through its legs, the contact's through its own.
+                let ic = self.sim.current(contact);
+                vec![-r.amps, r.amps, -ic, ic]
             } else if let Some(low) = self.lower[i] {
                 // A potentiometer: in at one end, out at the other, the difference at the wiper.
                 let i2 = self.sim.current(low);

@@ -1,0 +1,17 @@
+title: Relays
+unlock: spotlamps
+para: A relay is a switch worked by a magnet. Current through its coil makes the coil a magnet, the magnet pulls a springy arm over, and the arm moves the contact. Coil and contact share no copper, so the coil can hang on a thin wire carrying 30 mA while its contact switches amps.
+para: A contact is named for where it rests with the coil off: normally open (NO) closes when the coil pulls in, normally closed (NC) opens. On the board the coil's legs are the copper-coloured pair, the contact's the tinned pair across them, and the contact itself is drawn in the middle, open or closed.
+para: A relay doesn't follow its coil exactly. The ones in the drawers are sure to pull in at 75% of their rated voltage and sure to let go below 5%; in between they stay as they were. They take time too: up to 8 ms to pull in and 5 ms to let go.
+para: The rated voltage is what the coil wants. Too little and it never pulls in; much past 130% and the coil overheats. A 12 V coil is 400 Ω and takes 30 mA. Flip SW1 here and listen.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume IV (Digital), section 5.1, Relay construction: pull-in and drop-out current, and a contact's normal state being the one with the coil de-energised.
+source: Sanyou SRD series relay datasheet (version 3.2): coil resistance (70 Ω at 5 V, 225 Ω at 9 V, 400 Ω at 12 V, 0.36 W), pick-up at 75% of nominal at most, drop-out at 5% at least, operate time 8 ms and release time 5 ms at most, 130% of nominal voltage at most.
+part: B battery 12 0.05 N
+part: S switch off W
+part: K relay 12 N
+part: X lamp 28.8 5 N
+grid:
+┌─S┐.
+├──K┐
+B..│X
+└──┴┘

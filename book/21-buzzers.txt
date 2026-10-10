@@ -1,0 +1,16 @@
+title: Buzzers and flashers
+unlock: doorbell-buzzer
+para: Feed a relay's coil through its own NC contact and it can't make up its mind. It pulls in, which opens the contact, which cuts the coil, so it lets go, which closes the contact, so it pulls in again. The relays in the drawers do that about 77 times a second, and the arm slapping to and fro is the buzz. An old buzzer is exactly this; an electric bell is the same with a hammer on the arm.
+para: Put a capacitor across the coil and it slows right down. When the contact opens, the capacitor keeps the coil fed as it empties, so the relay holds in a while; then it lets go, the contact closes, the capacitor fills again in a moment, and round it goes. The bigger the capacitor, the longer each hold: a flasher.
+para: Without the NC contact, a capacitor across a coil is a timer. Fill it with a button and the relay holds in until the coil has emptied it down to the drop-out voltage: for the drawers' 12 V relay, about 1.2 s for every 1000 µF.
+para: Click PB1 here to press it and hear the buzz, and again to let go.
+source: Wikipedia, Electric bell: the interrupter bell's arm opens its own contacts, interrupting the current, and a spring closes them again; a buzzer is the same mechanism without the bell.
+source: Sanyou SRD series relay datasheet (version 3.2): operate time 8 ms and release time 5 ms at most, drop-out at 5% of nominal voltage at least.
+part: B battery 4.5 0.45 N
+part: P button W
+part: K relay 5 nc N
+grid:
+┌─P┐┌┐
+│..└K┘
+B...│.
+└───┘.

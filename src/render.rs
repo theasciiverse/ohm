@@ -233,6 +233,11 @@ const BUTTON: Art = Art {
     f: [" KKK ", "LKCKL", " KKK "],
     b: ["     ", "  C  ", "     "],
 };
+const BUTTON_V: Art = Art {
+    g: [" ▄│▄ ", " █▀█ ", " ▀│▀ "],
+    f: [" KLK ", " KCK ", " KLK "],
+    b: ["     ", "  C  ", "     "],
+};
 const CERAMIC_H: Art = Art {
     g: ["     ", "─▐█▌─", "     "],
     f: ["     ", "LOOOL", "     "],
@@ -309,6 +314,41 @@ const POT_V: Art = Art {
     f: ["  L  ", " VXVL", "  L  "],
     b: ["     ", " VVV ", "     "],
 };
+// A diode: a dark body, its silver band at the cathode.
+const DIODE_H: Art = Art {
+    g: ["     ", "─▐█▌─", "     "],
+    f: ["     ", "LIISL", "     "],
+    b: ["     ", "     ", "     "],
+};
+const DIODE_V: Art = Art {
+    g: [" ▗▄▖ ", " ▐█▌ ", " ▝▀▘ "],
+    f: [" III ", " III ", " SSS "],
+    b: ["  L  ", "  I  ", "  L  "],
+};
+// A transistor in its dark TO-92 case: collector toward `facing`, emitter opposite, the base
+// leg a quarter turn clockwise (north when the collector faces west, east when it faces north).
+const NPN_H: Art = Art {
+    g: [" ▗│▖ ", "─▐█▌─", " ▝▀▘ "],
+    f: [" ILI ", "LIIIL", " III "],
+    b: ["  I  ", "     ", "     "],
+};
+const NPN_V: Art = Art {
+    g: [" ▗│▖ ", " ▐█▌─", " ▝│▘ "],
+    f: [" ILI ", " IIIL", " ILI "],
+    b: ["  I  ", "     ", "  I  "],
+};
+// A relay, the blue cube most small ones come in: its coil's legs (copper) along `facing`, the
+// contact's (tinned) across, and the contact itself drawn in the middle, open or closed.
+const RELAY_V: Art = Art {
+    g: [" ▄│▄ ", "─█*█─", " ▀│▀ "],
+    f: [" VJV ", "LVXVL", " VJV "],
+    b: ["     ", "  V  ", "     "],
+};
+const RELAY_H: Art = Art {
+    g: [" ▄│▄ ", "─█*█─", " ▀│▀ "],
+    f: [" VLV ", "JVXVJ", " VLV "],
+    b: ["     ", "  V  ", "     "],
+};
 const SUPPLY: Art = Art {
     g: [" ▄▄▄ ", "─+ -─", " ▀▀▀ "],
     f: [" HHH ", "LR KL", " HHH "],
@@ -357,6 +397,8 @@ pub struct Look {
     /// Load against rating, as `solver::Circuit::heat`.
     pub heat: f64,
     pub burnt: bool,
+    /// A relay has pulled in.
+    pub on: bool,
 }
 
 /// The colour code (IEC 60062): each digit's band, then gold, which as a third band divides by
@@ -420,7 +462,8 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
         (Kind::Switch { closed: true }, true) => &SWITCH_CLOSED_H,
         (Kind::Switch { closed: false }, false) => &SWITCH_OPEN_V,
         (Kind::Switch { closed: true }, false) => &SWITCH_CLOSED_V,
-        (Kind::Button { .. }, _) => &BUTTON,
+        (Kind::Button { .. }, true) => &BUTTON,
+        (Kind::Button { .. }, false) => &BUTTON_V,
         (Kind::Capacitor { .. }, true) if !kind.polarised() => &CERAMIC_H,
         (Kind::Capacitor { .. }, false) if !kind.polarised() => &CERAMIC_V,
         (Kind::Capacitor { .. }, true) => &ELECTROLYTIC_H,
@@ -436,6 +479,12 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
         (Kind::Ntc { .. }, false) => &NTC_V,
         (Kind::Pot { .. }, true) => &POT_H,
         (Kind::Pot { .. }, false) => &POT_V,
+        (Kind::Diode, true) => &DIODE_H,
+        (Kind::Diode, false) => &DIODE_V,
+        (Kind::Npn { .. }, true) => &NPN_H,
+        (Kind::Npn { .. }, false) => &NPN_V,
+        (Kind::Relay { .. }, true) => &RELAY_H,
+        (Kind::Relay { .. }, false) => &RELAY_V,
     };
     let bands = match kind {
         Kind::Resistor { ohms, .. } => resistor_bands(ohms),
@@ -458,7 +507,9 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
             (if look.burnt { charred } else { mix(dark, full, look.glow) }, mix(bg, full, 0.35 * look.glow))
         }
         Kind::Lamp { .. } => (mix((120, 130, 140), (255, 230, 150), look.glow), mix(bg, (255, 220, 120), 0.3 * look.glow)),
-        Kind::Button { held } => (if held { (120, 20, 16) } else { (220, 40, 30) }, bg),
+        // A stop button is red, as on machines; a plain push button black.
+        Kind::Button { held, nc: true } => (if held { (120, 20, 16) } else { (220, 40, 30) }, bg),
+        Kind::Button { held, nc: false } => (if held { (14, 14, 16) } else { (60, 60, 66) }, bg),
         // Light falls round an LDR as bright as it is (a log scale, up to daylight).
         Kind::Ldr { lux } => ((0, 0, 0), mix(bg, (255, 240, 190), 0.3 * ((lux + 1.0).log10() / 3.0).clamp(0.0, 1.0))),
         // A thermistor's bead from freezer blue to warm-hand red.
@@ -467,6 +518,9 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
     };
     // A pot's knob points round with its turn.
     let pointer = match kind {
+        // A relay's contact, across the coil: closed, or open at an angle.
+        Kind::Relay { nc, .. } if look.on != nc => if horizontal { '│' } else { '─' },
+        Kind::Relay { .. } => '╱',
         Kind::Pot { turn, .. } if turn < 1.0 / 3.0 => '╲',
         Kind::Pot { turn, .. } if turn < 2.0 / 3.0 => '│',
         _ => '╱',
@@ -499,13 +553,23 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
             'X' => (236, 236, 230),
             // A bench supply's light grey case, as most are.
             'H' => (150, 156, 162),
+            // A relay's coil legs, brighter while it carries its current.
+            'J' => warm(if look.on { (240, 150, 60) } else { (150, 95, 50) }),
             _ => return None,
         })
     };
     // Mirrored to face east or south; a pot is turned half round instead.
-    let pot = matches!(kind, Kind::Pot { .. });
-    let flip_h = facing == Dir::E || pot && facing == Dir::S;
-    let flip_v = facing == Dir::S || pot && facing == Dir::E;
+    let pot = matches!(kind, Kind::Pot { .. } | Kind::Npn { .. });
+    let mut flip_h = facing == Dir::E || pot && facing == Dir::S;
+    let mut flip_v = facing == Dir::S || pot && facing == Dir::E;
+    // A transistor with its legs bent the other way: the base mirrored across the collector.
+    if let Kind::Npn { flip: true } = kind {
+        if horizontal {
+            flip_v = !flip_v;
+        } else {
+            flip_h = !flip_h;
+        }
+    }
     for row in 0..3 {
         let src_row = if flip_v { 2 - row } else { row };
         let g: Vec<char> = art.g[src_row].chars().collect();
@@ -575,7 +639,7 @@ impl BoardView<'_> {
             Kind::Lamp { watts, .. } => (r.watts / watts).clamp(0.0, 1.0).sqrt(),
             _ => 0.0,
         };
-        Look { glow, heat: r.heat, burnt: r.burnt || part.burnt }
+        Look { glow, heat: r.heat, burnt: r.burnt || part.burnt, on: live.energised(i) }
     }
 
     /// Copper colour on a net: cold at 0 V, hot at the highest source voltage.
@@ -1884,6 +1948,13 @@ pub struct BookLayout {
     pub page: Rect,
 }
 
+/// The first entry a list of `n` shows in `height` rows so that entry `sel` is in view: from
+/// the top while it fits, then scrolled just far enough.
+pub fn list_top(n: usize, sel: usize, height: u16) -> usize {
+    let h = (height as usize).max(1);
+    if n <= h { 0 } else { (sel + 1).saturating_sub(h).min(n - h) }
+}
+
 pub fn book_layout(l: &Layout) -> BookLayout {
     let o = l.overlay;
     let list = Rect::new(o.x + 2, o.y + 2, 24, o.height - 3);
@@ -1913,8 +1984,10 @@ pub fn book(
     let o = l.overlay;
     frame(buf, o, "THE MASTER'S NOTEBOOK", "arrows or click a page · wheel scrolls · n or Esc closes", DESK);
     let bl = book_layout(l);
-    for (i, (title, open)) in titles.iter().enumerate() {
-        if i as u16 >= bl.list.height {
+    let top = list_top(titles.len(), sel, bl.list.height);
+    for (i, (title, open)) in titles.iter().enumerate().skip(top) {
+        let row = (i - top) as u16;
+        if row >= bl.list.height {
             break;
         }
         let (fg, bg) = match (i == sel, open) {
@@ -1923,7 +1996,7 @@ pub fn book(
             (false, false) => (DIM, DESK),
         };
         let label = if *open { title.clone() } else { "(not yet)".to_string() };
-        text(buf, bl.list.x, bl.list.y + i as u16, &format!("{:<w$}", label, w = bl.list.width as usize), fg, bg);
+        text(buf, bl.list.x, bl.list.y + row, &format!("{:<w$}", label, w = bl.list.width as usize), fg, bg);
     }
     // The page itself, on paper.
     let paper = bl.page;
@@ -2178,6 +2251,21 @@ fn shelf_art(id: &str) -> ([&'static str; 4], &'static str) {
         "level-crossing" => (["r.......", "KRWRWRWR", "K.......", "K......."], "crossing"),
         "crossing-lifts" => (["r....R..", "K..W....", "KR......", "K......."], "barrier"),
         "puppet-theatre" => (["RRRRRRRR", "RR.LL.RR", "RR....RR", "PPPPPPPP"], "theatre"),
+        "spotlamps" => (["KKKKK...", "KLLLKy..", "KLLLKYy.", "KKKKK..."], "spotlamp"),
+        "coffee-roaster" => (["..DDDD..", ".DDDDDDK", ".DDDDDD.", "KKgKrKK."], "roaster"),
+        "railway-signal" => (["..KKK...", "..KrK...", "..KgK...", "...K...."], "signal"),
+        "doorbell-buzzer" => ([".WWWWWW.", ".WKWKWW.", ".WWKWKW.", ".WWWWWW."], "buzzer"),
+        "cellar-light" => (["...K....", "...K....", "..LLL...", "..LLL..."], "cellar"),
+        "lighthouse" => (["..KLK...", "..RRR...", "..WWW...", ".RRRRR.."], "lighthouse"),
+        "flash-battery" => (["..KKKK..", ".KWWWWK.", ".KKKKKK.", ".KKgKKK."], "flash"),
+        "which-door" => (["DDr..gDD", "DD....DD", "Dk....Dk", "DD....DD"], "hall lights"),
+        "flood-alarm" => (["...r....", "...K....", ".G....G.", "GGGGGGGG"], "flood alarm"),
+        "oil-warning" => (["KKKKKKKK", "KWKrKWKK", "KKKKKKKK", "........"], "oil light"),
+        "freezer-alarm" => (["........", "WWWWWWrW", "WWWWWWWW", "WWWWWWWW"], "freezer"),
+        "jetty-light" => (["...Y....", "...K....", "...K....", "PPPPPPPP"], "jetty"),
+        "occupied-sign" => (["KKKKKKKK", "KrrKggKK", "KKKKKKKK", "...KK..."], "toilet sign"),
+        "crossing-lights" => ([".rKKKKr.", "...KK...", "...KK...", "...KK..."], "warning post"),
+        "quiz-timer" => (["KKKKKKKK", "KgKKKKrK", "KKKKKKKK", "...KR..."], "quiz timer"),
         _ => (["........", ".GGGGGG.", ".GGGGGG.", "........"], "gadget"),
     }
 }
@@ -2380,8 +2468,10 @@ pub fn gallery(buf: &mut Buffer, area: Rect) {
         ("switch off", Kind::Switch { closed: false }, Dir::W, Look::default()),
         ("switch on", Kind::Switch { closed: true }, Dir::W, Look::default()),
         ("switch vert", Kind::Switch { closed: true }, Dir::N, Look::default()),
-        ("button", Kind::Button { held: false }, Dir::W, Look::default()),
-        ("button held", Kind::Button { held: true }, Dir::W, Look::default()),
+        ("button", Kind::Button { held: false, nc: false }, Dir::W, Look::default()),
+        ("button held", Kind::Button { held: true, nc: false }, Dir::W, Look::default()),
+        ("stop button", Kind::Button { held: false, nc: true }, Dir::W, Look::default()),
+        ("button N", Kind::Button { held: false, nc: false }, Dir::N, Look::default()),
         ("cap 100n", Kind::Capacitor { farads: 100e-9, volts: f64::INFINITY }, Dir::W, Look::default()),
         ("cap 100n vert", Kind::Capacitor { farads: 100e-9, volts: f64::INFINITY }, Dir::N, Look::default()),
         ("cap 100u", Kind::Capacitor { farads: 100e-6, volts: 25.0 }, Dir::W, Look::default()),
@@ -2400,6 +2490,18 @@ pub fn gallery(buf: &mut Buffer, area: Rect) {
         ("pot N .5", Kind::Pot { ohms: 10e3, turn: 0.5 }, Dir::N, Look::default()),
         ("pot E 1", Kind::Pot { ohms: 10e3, turn: 1.0 }, Dir::E, Look::default()),
         ("pot S .5", Kind::Pot { ohms: 10e3, turn: 0.5 }, Dir::S, Look::default()),
+        ("diode", Kind::Diode, Dir::W, Look::default()),
+        ("diode N", Kind::Diode, Dir::N, Look::default()),
+        ("npn W", Kind::Npn { flip: false }, Dir::W, Look::default()),
+        ("npn N", Kind::Npn { flip: false }, Dir::N, Look::default()),
+        ("npn E", Kind::Npn { flip: false }, Dir::E, Look::default()),
+        ("npn S", Kind::Npn { flip: false }, Dir::S, Look::default()),
+        ("npn N flip", Kind::Npn { flip: true }, Dir::N, Look::default()),
+        ("npn W flip", Kind::Npn { flip: true }, Dir::W, Look::default()),
+        ("relay N", Kind::Relay { volts: 12.0, nc: false }, Dir::N, Look::default()),
+        ("relay N on", Kind::Relay { volts: 12.0, nc: false }, Dir::N, Look { on: true, ..Look::default() }),
+        ("relay W NC", Kind::Relay { volts: 12.0, nc: true }, Dir::W, Look::default()),
+        ("relay W NC on", Kind::Relay { volts: 12.0, nc: true }, Dir::W, Look { on: true, ..Look::default() }),
     ];
     let per_row = 6;
     let (cell_w, cell_h) = (16u16, 11u16);

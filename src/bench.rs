@@ -32,7 +32,15 @@ pub enum Check {
     /// After the case's last event (or from the start), a test point's voltage gets to `volts`
     /// in `min` to `max` seconds, rising or falling to it.
     Reaches { point: String, volts: f64, min: f64, max: f64 },
+    /// After the case's last event, an LED or a lamp blinks, or a relay chatters, `min` to
+    /// `max` times a second, timed over `BLINK_WATCH` seconds once it has had `BLINK_START`
+    /// to get going.
+    Blinks { part: String, min: f64, max: f64 },
 }
+
+/// A blink check lets the circuit get going this long, then times it for this long, seconds.
+const BLINK_START: f64 = 0.5;
+const BLINK_WATCH: f64 = 6.0;
 
 /// One condition the build must meet: how the bench sets the board up, and what it checks.
 #[derive(Clone, Debug, PartialEq)]
@@ -92,7 +100,7 @@ pub fn run_case(board: &Board, case: &Case) -> Outcome {
     let mut b = with_settings(board, case);
     // A check can name several parts joined with `+` (`LED1+LED2`): each must pass.
     let names = match &case.check {
-        Check::Lit { part, .. } | Check::Dark { part } | Check::Blown { part } | Check::Lasts { part, .. } => part,
+        Check::Lit { part, .. } | Check::Dark { part } | Check::Blown { part } | Check::Lasts { part, .. } | Check::Blinks { part, .. } => part,
         Check::Volts { point, .. } | Check::Reaches { point, .. } => point,
     };
     let mut targets = Vec::new();
@@ -106,8 +114,12 @@ pub fn run_case(board: &Board, case: &Case) -> Outcome {
     let start = case.start();
     let end = match &case.check {
         Check::Lasts { max, .. } | Check::Reaches { max, .. } => start + max + 0.5,
+        Check::Blinks { .. } => start + BLINK_START + BLINK_WATCH,
         _ => case.at.unwrap_or(start + SETTLE),
     };
+    // For a blink check: whether the part was on at the last step, and when it came on.
+    let mut was_on: Option<bool> = None;
+    let mut rises: Vec<f64> = Vec::new();
     let mut next = 0;
     // For timed checks: the reading where the count starts, and when it ended, from `start`.
     let mut from: Option<f64> = None;
@@ -122,7 +134,8 @@ pub fn run_case(board: &Board, case: &Case) -> Outcome {
             let i = b.part(label).unwrap();
             b.parts[i].kind = set_kind(b.parts[i].kind, *v);
             match b.parts[i].kind {
-                Kind::Switch { closed: on } | Kind::Button { held: on } => live.set_switch(i, on),
+                Kind::Switch { closed: on } => live.set_switch(i, on),
+                Kind::Button { held, nc } => live.set_switch(i, held != nc),
                 _ => {
                     let old = std::mem::replace(&mut live, Live::build(&b));
                     live.keep_charge(&old);
@@ -153,6 +166,14 @@ pub fn run_case(board: &Board, case: &Case) -> Outcome {
                     break;
                 }
             }
+            Check::Blinks { .. } => {
+                let i = targets[0];
+                let on = if matches!(b.parts[i].kind, Kind::Relay { .. }) { live.energised(i) } else { live.reading(&b, i).amps >= UNLIT };
+                if since >= BLINK_START && was_on == Some(false) && on {
+                    rises.push(since);
+                }
+                was_on = Some(on);
+            }
             Check::Reaches { volts, .. } => {
                 let v = live.reading(&b, targets[0]).volts;
                 let was = *from.get_or_insert(v);
@@ -165,7 +186,16 @@ pub fn run_case(board: &Board, case: &Case) -> Outcome {
         }
     }
     let after = match case.events.last() {
-        Some((_, label, v)) => format!(" after {label} {}", if *v > 0.5 { "goes on" } else { "goes off" }),
+        Some((_, label, v)) => {
+            let button = b.part(label).is_some_and(|i| matches!(b.parts[i].kind, Kind::Button { .. }));
+            let what = match (button, *v > 0.5) {
+                (true, true) => "is pressed",
+                (true, false) => "is let go",
+                (false, true) => "goes on",
+                (false, false) => "goes off",
+            };
+            format!(" after {label} {what}")
+        }
         None => String::new(),
     };
     // "in 1.10 s" from the start, "1.10 s after SW1 goes off" from an event.
@@ -191,6 +221,32 @@ pub fn run_case(board: &Board, case: &Case) -> Outcome {
                     why: format!("{label} is still lit {}{after}; it should go out within {}.", secs(*max + 0.5), secs(*max)),
                 },
             };
+        }
+        Check::Blinks { min, max, .. } => {
+            let label = names;
+            let relay = matches!(b.parts[targets[0]].kind, Kind::Relay { .. });
+            let (blinks, blinking) = if relay { ("chatters", "chattering") } else { ("blinks", "blinking") };
+            // Slow blinks read as a period, quick ones as a rate.
+            let range = if *max < 1.0 {
+                format!("once every {} to {}", secs(1.0 / max), secs(1.0 / min))
+            } else {
+                format!("{} to {} times a second", hz(*min), hz(*max))
+            };
+            if rises.len() < 2 {
+                let state = match (relay, was_on == Some(true), rises.len()) {
+                    (_, _, 1) => format!("{blinks} only once in {}", secs(BLINK_WATCH)),
+                    (true, true, _) => "stays pulled in".into(),
+                    (true, false, _) => "stays at rest".into(),
+                    (false, true, _) => "stays lit".into(),
+                    (false, false, _) => "stays dark".into(),
+                };
+                return Outcome::fail(format!("{label} {state}{after}; it should be {blinking} {range}."));
+            }
+            let rate = (rises.len() - 1) as f64 / (rises[rises.len() - 1] - rises[0]);
+            let ok = (*min..=*max).contains(&rate);
+            let says = if rate < 1.0 { format!("once every {}", secs(1.0 / rate)) } else { format!("{} times a second", hz(rate)) };
+            let why = if ok { format!("{label} {blinks} {says}.") } else { format!("{label} {blinks} {says}; this job wants {range}.") };
+            return Outcome { pass: ok, measured: Some(rate), why };
         }
         Check::Reaches { volts, min, max, .. } => {
             let label = names;
@@ -245,12 +301,17 @@ fn with_settings(board: &Board, case: &Case) -> Board {
 fn set_kind(kind: Kind, v: f64) -> Kind {
     match kind {
         Kind::Switch { .. } => Kind::Switch { closed: v > 0.5 },
-        Kind::Button { .. } => Kind::Button { held: v > 0.5 },
+        Kind::Button { nc, .. } => Kind::Button { held: v > 0.5, nc },
         Kind::Ldr { .. } => Kind::Ldr { lux: v },
         Kind::Ntc { .. } => Kind::Ntc { celsius: v },
         Kind::Pot { ohms, .. } => Kind::Pot { ohms, turn: v.clamp(0.0, 1.0) },
         k => k,
     }
+}
+
+/// A rate as the bench says it: "1.2", "75".
+pub fn hz(f: f64) -> String {
+    if f < 10.0 { format!("{f:.1}") } else { format!("{f:.0}") }
 }
 
 /// Seconds as the bench says them: "0.85 s", "12 s".
@@ -303,7 +364,7 @@ fn judge(check: &Check, label: &str, r: crate::circuit::Reading) -> Outcome {
             };
             Outcome { pass, measured: Some(r.volts), why }
         }
-        Check::Lasts { .. } | Check::Reaches { .. } => unreachable!("timed checks are judged in run_case"),
+        Check::Lasts { .. } | Check::Reaches { .. } | Check::Blinks { .. } => unreachable!("timed checks are judged in run_case"),
         Check::Blown { .. } => {
             let why = if r.burnt { format!("{label} blew and cut the fault off.") } else { format!("{label} held through the fault; it should have blown.") };
             Outcome { pass: r.burnt, measured: Some(r.amps), why }
@@ -405,6 +466,23 @@ pub fn diagnose(b: &Board) -> Vec<Hint> {
         }
     }
 
+    // A relay's coil or contact with both its legs on one copper.
+    for (i, p) in b.parts.iter().enumerate() {
+        if !matches!(p.kind, Kind::Relay { .. }) {
+            continue;
+        }
+        for (legs, what) in [((0, 1), "coil"), ((2, 3), "contact")] {
+            if net.pin_net[i][legs.0] == net.pin_net[i][legs.1] {
+                hints.push(hint(
+                    format!("{}'s {what} isn't doing anything.", p.label),
+                    format!("Both of {}'s {what} legs are on the same copper, so current goes around the {what}, not through it.", p.label),
+                    format!("Cut the trace that runs from one {what} leg of {} to the other.", p.label),
+                    vec![p.pos],
+                ));
+            }
+        }
+    }
+
     // 3. Pins with nothing else on their net.
     for (i, p) in b.parts.iter().enumerate() {
         if p.kind.is_source() {
@@ -476,6 +554,22 @@ pub fn diagnose(b: &Board) -> Vec<Hint> {
                     format!("{} had to turn {} into heat; it's rated for {}.", p.label, si(peak[i], "W"), si(watts, "W")),
                     format!("Use a larger value for {}, or a part rated for more power.", p.label),
                 ),
+                Kind::Npn { .. } => (
+                    format!("{} carried more than it can: 100 mA through its collector, or 0.625 W of heat.", p.label),
+                    format!("Feed {}'s base through a resistor, and put a resistor or the load in its collector's path.", p.label),
+                ),
+                Kind::Diode => (
+                    format!("More than {} flowed through {} and cooked it: a short, with only the diode in the way.", si(1.0, "A"), p.label),
+                    format!("Find what draws the current through {}: a diode needs something else to limit it.", p.label),
+                ),
+                Kind::Relay { volts, .. } => (
+                    format!("{}'s coil is made for {} and takes no more than {} for long; it had {} across it.", p.label, si(volts, "V"), si(volts * crate::solver::RELAY_MAX, "V"), si(r.volts.abs().max(peak[i].sqrt() * volts / crate::solver::RELAY_WATTS.sqrt()), "V")),
+                    format!("Use a relay whose coil is rated for the voltage {} gets.", p.label),
+                ),
+                Kind::Capacitor { .. } => (
+                    format!("{} vented: it was held past its rated voltage, or charged the wrong way round.", p.label),
+                    format!("Turn {} so its striped leg goes toward -, or use one rated for more volts.", p.label),
+                ),
                 Kind::Fuse { amps } => (
                     format!("More than {} flowed through {}, so it melted: a short, or a load bigger than the fuse.", si(amps, "A"), p.label),
                     "Find what draws the current. If the load is right, use the next fuse up that still blows on a fault.".into(),
@@ -484,6 +578,16 @@ pub fn diagnose(b: &Board) -> Vec<Hint> {
             };
             let what = if matches!(p.kind, Kind::Fuse { .. }) { "blew" } else { "burnt out" };
             hints.push(hint(format!("{} {what}.", p.label), detail, fix, vec![p.pos]));
+        } else if let Kind::Diode = p.kind
+            && r.volts < -1.0
+            && sources.iter().map(|&s| live.reading(b, s).amps.abs()).sum::<f64>() < 1e-6
+        {
+            hints.push(hint(
+                format!("{} is blocking.", p.label),
+                format!("{} only passes current from its anode to its cathode (the band); its anode is {} below its cathode, so it blocks, and nothing else flows.", p.label, si(-r.volts, "V")),
+                format!("Turn {} round so its band faces toward -.", p.label),
+                vec![p.pos],
+            ));
         } else if let Kind::Led(_) = p.kind
             && r.volts < -1.0
         {
@@ -499,13 +603,27 @@ pub fn diagnose(b: &Board) -> Vec<Hint> {
             ));
         }
     }
+    // A relay whose coil gets some voltage, but not enough to pull in.
+    for (i, p) in b.parts.iter().enumerate() {
+        if let Kind::Relay { volts, .. } = p.kind {
+            let v = live.reading(b, i).volts.abs();
+            if !live.energised(i) && v > crate::solver::RELAY_DROP * volts && v < crate::solver::RELAY_PULL * volts {
+                hints.push(hint(
+                    format!("{} never pulls in.", p.label),
+                    format!("{}'s coil gets {}; a {} relay needs at least {} to be sure of pulling in.", p.label, si(v, "V"), si(volts, "V"), si(crate::solver::RELAY_PULL * volts, "V")),
+                    format!("Give {}'s coil more voltage, or use a relay rated for what it gets.", p.label),
+                    vec![p.pos],
+                ));
+            }
+        }
+    }
     if hints.is_empty() {
         let delivered: f64 = sources.iter().map(|&s| live.reading(b, s).amps.abs()).sum();
         if delivered < 1e-6 {
             let open: Vec<&str> = b
                 .parts
                 .iter()
-                .filter(|p| matches!(p.kind, Kind::Switch { closed: false } | Kind::Button { held: false }))
+                .filter(|p| matches!(p.kind, Kind::Switch { closed: false } | Kind::Button { held: false, nc: false }))
                 .map(|p| p.label.as_str())
                 .collect();
             let detail = if open.is_empty() {
@@ -685,5 +803,51 @@ mod tests {
         assert_eq!(si(4.7e-6, "F"), "4.70 µF");
         assert_eq!(si(0.0, "V"), "0.00 V");
         assert_eq!(si(4700.0, "Ω"), "4.70 kΩ");
+    }
+
+    #[test]
+    fn a_relay_short_of_voltage_or_cooked_says_so() {
+        let buzzer = |volts: f64| {
+            let rows = ["┌─P┐┌┐", "│..└K┘", "B...│.", "└───┘."];
+            Board::parse(
+                &rows,
+                &[
+                    ('B', Kind::Battery { volts: 4.5, r_int: 0.45 }, Dir::N),
+                    ('P', Kind::Button { held: true, nc: false }, Dir::W),
+                    ('K', Kind::Relay { volts, nc: true }, Dir::N),
+                ],
+            )
+            .unwrap()
+        };
+        let h = diagnose(&buzzer(12.0));
+        assert!(h.iter().any(|h| h.nudge == "K1 never pulls in."), "{h:?}");
+        assert!(diagnose(&buzzer(5.0)).iter().all(|h| !h.nudge.contains("K1")));
+        let mut b = buzzer(5.0);
+        let (bt, k) = (b.part("BT1").unwrap(), b.part("K1").unwrap());
+        b.parts[bt].kind = Kind::Battery { volts: 12.0, r_int: 0.05 };
+        // Cooked before the trial: it burns in about 0.75 s, longer than the trial runs.
+        b.parts[k].burnt = true;
+        let h = diagnose(&b);
+        assert!(h.iter().any(|h| h.nudge == "K1 burnt out." && h.detail.contains("made for 5.00 V")), "{h:?}");
+    }
+
+    #[test]
+    fn a_diode_backwards_says_it_is_blocking() {
+        let rows = ["┌D─┐", "B..L", "└S─┘"];
+        let with = |d: Dir| {
+            let b = Board::parse(
+                &rows,
+                &[
+                    ('B', Kind::Battery { volts: 4.5, r_int: 0.45 }, Dir::N),
+                    ('D', Kind::Diode, d),
+                    ('L', Kind::Lamp { ohms: 15.0, watts: 1.35 }, Dir::N),
+                    ('S', Kind::Switch { closed: true }, Dir::W),
+                ],
+            )
+            .unwrap();
+            diagnose(&b)
+        };
+        assert!(with(Dir::W).is_empty(), "{:?}", with(Dir::W));
+        assert!(with(Dir::E).iter().any(|h| h.nudge == "D1 is blocking."), "{:?}", with(Dir::E));
     }
 }

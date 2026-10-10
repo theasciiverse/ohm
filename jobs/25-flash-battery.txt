@@ -1,0 +1,30 @@
+# A diode in series guards against a battery put in backwards: it lets current through the right
+# way (losing about 0.7 V) and blocks it the wrong way, so the electrolytic never sees -9 V and
+# vents. Without it the capacitor vents; the diode backwards keeps the lamp dark.
+name: Flash battery box
+customer: Mr Strand
+fee: 50
+note: My new assistant keeps putting the 9 V battery into the flash's ready lamp the wrong way round, and the second time the big capacitor in it went off with a bang and a smell of fish. Can the box be made so that the battery the wrong way round does nothing at all? LED1 is the ready lamp, C1 the capacitor.
+battery: 0
+book: diodes
+part: B battery 9 1.5 N
+part: C cap 1000u 16 N
+part: R resistor 470 0.25 W
+part: L led green N
+drawer: diode x1 0.40
+case: battery right way: lit | lit LED1 5m 20m
+case: battery backwards: nothing pops | battery -9 | dark LED1 at 3
+master-part: D diode W
+master: ..........
+master: .┌─D┬─R─┐.
+master: .B..C...L.
+master: .└──┴───┘.
+master: ..........
+master: ..........
+grid:
+..........
+......R...
+.B..C...L.
+..........
+..........
+..........

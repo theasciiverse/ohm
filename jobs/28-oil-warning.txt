@@ -1,0 +1,37 @@
+# A transistor as NOT: R2 pulls the base up, the oil switch pulls it down to ground while the
+# engine has pressure, so the LED lights exactly when the switch opens. 10k feeds the base well;
+# 1M is too weak (3 mA); 100 ohm cooks itself while the switch shorts it. 680 ohm sets the LED.
+name: Oil warning
+customer: Mr Lund
+fee: 60
+note: The van's oil warning lamp has died, and I'd like an LED instead. The trouble is the oil pressure switch: it's closed while the engine has oil pressure, connecting its wire to the engine block (that's minus), and opens when the pressure goes. So the light has to come on when the switch opens. SW1 is the oil switch.
+battery: 0
+book: transistors, transistor-switches
+part: B battery 12 0.05 N
+part: S switch on W
+part: L led red N
+drawer: npn x1 0.60
+drawer: resistor 100 0.25 x1 0.10
+drawer: resistor 470 0.25 x1 0.10
+drawer: resistor 680 0.25 x1 0.10
+drawer: resistor 1k 0.25 x1 0.10
+drawer: resistor 10k 0.25 x1 0.10
+drawer: resistor 1M 0.25 x1 0.10
+case: oil pressure: dark | set SW1 on | dark LED1 at 2
+case: no oil pressure: warning | set SW1 off | lit LED1 10m 20m
+master-part: C resistor 680 0.25 N
+master-part: R resistor 10k 0.25 N
+master-part: Q npn N
+master: .┌──┬───┐.
+master: .C..R...│.
+master: .L..│...B.
+master: .│..│...│.
+master: .Q──┴S┐.│.
+master: .└────┴─┘.
+grid:
+..........
+..........
+.L......B.
+..........
+.....S....
+..........

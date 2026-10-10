@@ -1,0 +1,35 @@
+# A relay lets a small current switch a big one. The dash switch's long thin wire (R1, 1.5 ohm,
+# rated 2 W) can't carry the 55 W lamp's 4.5 A: wired straight through, the lamp glows at half
+# power and the wire burns. Through a 12 V relay the wire carries only the coil's 30 mA and the
+# lamp gets the battery direct. The NC relay lights it the wrong way round; the 5 V relay's coil
+# takes four times its power on 12 V and burns out.
+name: Spotlamps
+customer: Mr Lund
+fee: 50
+note: I've fitted a big 55 W spotlamp to the front of the van for the forest roads, with a switch on the dashboard. But the wire to the dash is long and thin, and when I tried it the lamp was feeble and the wire got hot enough to smell. R1 is that wire. Can you make the dash switch work the lamp without the lamp's current going all the way round by the dash?
+battery: 0
+book: relays
+part: B battery 12 0.05 N
+part: S switch off W
+part: W resistor 1.5 2 W
+part: X lamp 2.62 55 N
+drawer: relay 12 x1 1.80
+drawer: relay 12 nc x1 1.80
+drawer: relay 5 x1 1.20
+case: switched on: full beam | set SW1 on | lit LP1 4 5 at 3
+case: switched off | set SW1 off | dark LP1
+hint-parts: One relay is all it takes. The coil goes on the thin wire, the contact on the thick one.
+master-part: K relay 12 N
+master: ..........
+master: .┌─S─W─┐..
+master: .├─────K┐.
+master: .B.....│X.
+master: .└─────┴┘.
+master: ..........
+grid:
+..........
+...S.W....
+..........
+.B......X.
+..........
+..........

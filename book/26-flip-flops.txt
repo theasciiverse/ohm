@@ -1,0 +1,25 @@
+title: Flip-flops
+unlock: occupied-sign
+para: Two transistors can remember. Feed each one's base from the other's collector: when the first is on, its collector is low, so the second gets nothing and stays off; the second being off leaves its collector high, which keeps the first on. Either way round holds itself, for as long as the battery lasts.
+para: To change it, take the base current away from the side that is on, with a button from its base to minus. It turns off, its collector rises, the other side turns on, and it stays that way after the button is let go. Setting and resetting it: a flip-flop, one bit of memory, the same as the relay that held itself, with nothing moving and nothing clicking.
+para: Its cousins: give one cross link a capacitor instead of a resistor and it flips back by itself after a while (a one-shot); give both and it never rests (a blinker).
+para: PB2 here turns the red side on, PB1 the green. Click one, then click it again to let go.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume IV (Digital), sections 10.1 and 10.2, Digital logic with feedback and The S-R latch: bistable, monostable and astable multivibrators; the latch as a bistable with two stable states, set and reset.
+part: B battery 9 1.5 N
+part: L led red N
+part: M led green N
+part: P button N
+part: O button N
+part: Y resistor 10k 0.25 W
+part: Z resistor 470 0.25 W
+part: W resistor 10k 0.25 W
+part: V resistor 470 0.25 W
+part: Q npn N
+part: q npn flip N
+grid:
+┌────────┐
+│.┌Y──┐..│
+└Z┤┌─Wx┬V┤
+..Q┤..├q.│
+..LP..OM.B
+..└┴──┴┴─┘

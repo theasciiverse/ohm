@@ -1,0 +1,17 @@
+title: A relay that holds itself
+unlock: coffee-roaster
+para: A relay can hold itself in. Wire one of its own NO contacts across the START button: press START and the coil pulls in, the contact closes, and now the coil is fed through its own contact as well. Let go of START and nothing changes. The relay remembers.
+para: To make it forget, break the coil's feed with a STOP button, one that is closed until pressed, in the same line. Pressing STOP drops the relay out, its contact opens, and only START can bring it back.
+para: The holding contact is called a seal-in contact, and it is how a machine with a START and a STOP button keeps running. It is a memory too: one bit, made of a magnet and a spring.
+para: Here PB1 is START and PB2 is STOP. Click PB1 to press it and again to let go, then the same with PB2.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume IV (Digital), section 6.4, Motor control circuits: a normally-open seal-in contact in parallel with the start switch maintains power to the coil, and a normally-closed stop switch de-energises it.
+part: B battery 12 0.05 N
+part: Q button W
+part: P stop-button W
+part: L lamp 28.8 5 N
+part: K relay 12 N
+grid:
+┌─┬Q┬P─┐
+L.├┐│..│
+│.└K┘..B
+└──┴───┘

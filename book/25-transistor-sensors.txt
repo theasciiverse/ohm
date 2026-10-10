@@ -1,0 +1,19 @@
+title: Sensors and transistors
+unlock: freezer-alarm
+para: A sensor in a divider gives a voltage that follows the light or the warmth. Put the middle of that divider on a transistor's base, and the transistor turns the voltage into on or off: below about 0.6 V it stays off, a little above it is fully on.
+para: Which way round decides when it switches on. With the LDR below the base, darkness raises its resistance and with it the base: a light that comes on at dusk. With a thermistor above the base, warmth lowers its resistance and raises the base: an alarm that comes on when it warms.
+para: The fixed resistor sets where it switches. Larger above the base, or smaller below it, and the sensor must go further before the transistor comes on.
+para: Click LDR1 here to change the light on it.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume III (Semiconductors), section 4.2, The bipolar junction transistor as a switch: a sensor (a solar cell there) driving the base switches the load.
+source: The sensors as on the light and warmth page: the GL5528 LDR (8 to 20 kΩ at 10 lux, gamma 0.7) and a 10 kΩ, B 3950 NTC thermistor.
+part: B battery 9 1.5 N
+part: C resistor 470 0.25 W
+part: Y resistor 47k 0.25 W
+part: T ldr 1 W
+part: L led yellow W
+part: Q npn W
+grid:
+┌─Y─┬T┐
+├CL─Q┐│
+B....││
+└────┴┘

@@ -63,7 +63,7 @@ pub enum Overlay {
 }
 
 /// The binder's cards in order, one per kind of part; each kind here is the one drawn.
-const BINDER: [Kind; 12] = [
+const BINDER: [Kind; 15] = [
     Kind::Battery { volts: 4.5, r_int: 0.45 },
     Kind::Supply { volts: 5.0, limit: 0.1 },
     Kind::Led(crate::circuit::Colour::Red),
@@ -71,11 +71,14 @@ const BINDER: [Kind; 12] = [
     Kind::Resistor { ohms: 220.0, watts: 0.25 },
     Kind::Capacitor { farads: 100e-6, volts: 25.0 },
     Kind::Switch { closed: false },
-    Kind::Button { held: false },
+    Kind::Button { held: false, nc: false },
     Kind::Fuse { amps: 2.0 },
     Kind::Pot { ohms: 10e3, turn: 0.5 },
     Kind::Ldr { lux: 100.0 },
     Kind::Ntc { celsius: 20.0 },
+    Kind::Relay { volts: 12.0, nc: false },
+    Kind::Diode,
+    Kind::Npn { flip: false },
 ];
 
 /// The binder card a part belongs on.
@@ -175,6 +178,9 @@ pub struct App {
     pub quit: bool,
     pub audio: Audio,
     acc: f64,
+    /// Each part's relay state at the last step, and the moments relays moved, for their sound.
+    relays: Vec<bool>,
+    flips: std::collections::VecDeque<f64>,
 }
 
 /// Two kinds are the same part from the drawer, whatever a switch's position.
@@ -230,7 +236,7 @@ pub fn part_name(k: Kind) -> String {
         Kind::Battery { volts, .. } => format!("Battery {}", value(volts, "V")),
         Kind::Supply { volts, .. } => format!("Bench supply {}", value(volts, "V")),
         Kind::Switch { .. } => "Slide switch".into(),
-        Kind::Button { .. } => "Push button".into(),
+        Kind::Button { nc: false, .. } => "Push button".into(),
         Kind::Led(c) => format!("LED, {}", c.name()),
         // "Cap", so the rating fits the drawer. Electrolytics with their rating.
         // No-break spaces keep each number with its unit when a card wraps the name.
@@ -241,6 +247,10 @@ pub fn part_name(k: Kind) -> String {
         Kind::Ldr { .. } => "Light sensor (LDR)".into(),
         Kind::Ntc { .. } => "Thermistor 10 kΩ".into(),
         Kind::Pot { ohms, .. } => format!("Pot {}", value(ohms, "Ω")),
+        Kind::Button { nc: true, .. } => "Stop button".into(),
+        Kind::Diode => "Diode 1N4001".into(),
+        Kind::Npn { .. } => "Transistor BC547".into(),
+        Kind::Relay { volts, nc } => format!("Relay {}{}", value(volts, "V"), if nc { " NC" } else { "" }).replace(" V", "\u{a0}V"),
     }
 }
 
@@ -311,6 +321,8 @@ impl App {
             quit: false,
             audio,
             acc: 0.0,
+            relays: Vec::new(),
+            flips: std::collections::VecDeque::new(),
         };
         // Open the job that was on the desk, else the first not yet solved, as it was left.
         let first = (0..app.jobs.len()).find(|&i| !app.solved[i]).unwrap_or(0);
@@ -477,6 +489,8 @@ impl App {
         let live = Live::build(&self.board);
         let old = std::mem::replace(&mut self.live, live);
         self.live.keep_charge(&old);
+        // The new circuit's clock starts again at zero.
+        self.flips.clear();
         self.unsolvable = false;
         self.flow = vec![[0.0; 4]; self.board.w * self.board.h];
     }
@@ -609,6 +623,8 @@ impl App {
                 // An LDR steps through the light, a thermistor through the temperatures, a pot
                 // a tenth of a turn (round again at the end).
                 k @ (Kind::Ldr { .. } | Kind::Ntc { .. } | Kind::Pot { .. }) => self.set_state(i, next_state(k)),
+                // A transistor's legs bent the other way: its base to the other side.
+                Kind::Npn { flip } => self.set_state(i, Kind::Npn { flip: !flip }),
                 _ => {}
             },
             Cell::Trace(0b1111) | Cell::Jumper => {
@@ -636,8 +652,10 @@ impl App {
     }
 
     fn hold(&mut self, part: usize, until: Option<f64>) {
-        self.board.parts[part].kind = Kind::Button { held: true };
-        self.live.set_switch(part, true);
+        if let Kind::Button { held, nc } = &mut self.board.parts[part].kind {
+            *held = true;
+            self.live.set_switch(part, !*nc);
+        }
         self.held = Some((part, until));
         self.audio.play(Sfx::Click);
     }
@@ -646,8 +664,10 @@ impl App {
         if let Some((part, _)) = self.held.take()
             && part < self.board.parts.len()
         {
-            self.board.parts[part].kind = Kind::Button { held: false };
-            self.live.set_switch(part, false);
+            if let Kind::Button { held, nc } = &mut self.board.parts[part].kind {
+                *held = false;
+                self.live.set_switch(part, *nc);
+            }
             self.audio.play(Sfx::Click);
         }
     }
@@ -1288,7 +1308,7 @@ impl App {
             }
             Act::Down(x, y, _) => {
                 if render::in_rect(book.list, x, y) {
-                    let i = (y - book.list.y) as usize;
+                    let i = (y - book.list.y) as usize + render::list_top(self.pages.len(), page, book.list.height);
                     if i < self.pages.len() {
                         self.open_page(i);
                     }
@@ -1302,9 +1322,9 @@ impl App {
                                 b.parts[i].kind = Kind::Switch { closed: !closed };
                                 live.set_switch(i, !closed);
                             }
-                            Kind::Button { held } => {
-                                b.parts[i].kind = Kind::Button { held: !held };
-                                live.set_switch(i, !held);
+                            Kind::Button { held, nc } => {
+                                b.parts[i].kind = Kind::Button { held: !held, nc };
+                                live.set_switch(i, !held != nc);
                             }
                             // A sensor's light or warmth, or a pot's turn: the page's circuit
                             // is rebuilt with it.
@@ -1562,7 +1582,7 @@ impl App {
             match self.board.cell(s.last) {
                 Cell::Empty => self.place(s.last),
                 Cell::Trace(m) if m != 0b1111 && matches!(self.pick, Pick::Item(_)) => self.place(s.last),
-                Cell::Part(i) if matches!(self.board.parts[i].kind, Kind::Switch { .. } | Kind::Ldr { .. } | Kind::Ntc { .. } | Kind::Pot { .. }) => self.operate(s.last),
+                Cell::Part(i) if matches!(self.board.parts[i].kind, Kind::Switch { .. } | Kind::Ldr { .. } | Kind::Ntc { .. } | Kind::Pot { .. } | Kind::Npn { .. }) => self.operate(s.last),
                 Cell::Trace(0b1111) | Cell::Jumper => self.operate(s.last),
                 _ => {}
             }
@@ -1577,6 +1597,21 @@ impl App {
 
     // ------------------------------------------------------------ time
 
+    /// Notes every relay that moved in the last step: `moved` gets its new state.
+    fn listen_to_relays(&mut self, moved: &mut Option<bool>) {
+        self.relays.resize(self.board.parts.len(), false);
+        for (i, p) in self.board.parts.iter().enumerate() {
+            if matches!(p.kind, Kind::Relay { .. }) {
+                let on = self.live.energised(i);
+                if on != self.relays[i] {
+                    self.relays[i] = on;
+                    self.flips.push_back(self.live.sim.time);
+                    *moved = Some(on);
+                }
+            }
+        }
+    }
+
     pub fn update(&mut self, dt: f64) {
         self.time += dt;
         self.autosave();
@@ -1589,6 +1624,7 @@ impl App {
             self.message = None;
         }
         self.acc += dt.min(0.1);
+        let mut moved = None;
         while self.acc >= STEP {
             self.acc -= STEP;
             if self.unsolvable {
@@ -1597,6 +1633,20 @@ impl App {
             if self.live.sim.step(STEP).is_err() {
                 self.unsolvable = true;
                 self.say("The circuit can't be solved: two sources are fighting.");
+            }
+            self.listen_to_relays(&mut moved);
+        }
+        // A relay moving now and then clicks; one chattering on its own contact buzzes.
+        while self.flips.front().is_some_and(|&t| t < self.live.sim.time - 0.25) {
+            self.flips.pop_front();
+        }
+        let hz = self.flips.len() as f64 / 2.0 / 0.25;
+        if hz >= 8.0 {
+            self.audio.set_buzz(hz);
+        } else {
+            self.audio.set_buzz(0.0);
+            if let Some(on) = moved {
+                self.audio.play(if on { Sfx::RelayIn } else { Sfx::RelayOut });
             }
         }
         for i in 0..self.board.parts.len() {
@@ -1688,8 +1738,12 @@ impl App {
             Some(i) if !board.parts[i].burnt && !matches!(kind, Kind::TestPoint) => {
                 let r = live.reading(board, i);
                 let mut v = vec![format!("{} across", si(r.volts, "V")), format!("{} through", si(r.amps, "A")), format!("{} power", si(r.watts, "W"))];
-                if matches!(kind, Kind::Resistor { .. } | Kind::Led(_)) {
+                if matches!(kind, Kind::Resistor { .. } | Kind::Led(_) | Kind::Relay { .. }) {
                     v.push(format!("{:.0}% of its rating", r.heat * 100.0));
+                }
+                if let Kind::Relay { nc, .. } = kind {
+                    let on = live.energised(i);
+                    v.insert(0, format!("{}, contact {}", if on { "pulled in" } else { "at rest" }, if on != nc { "closed" } else { "open" }));
                 }
                 v
             }
@@ -1710,7 +1764,18 @@ impl App {
             }
             Kind::Supply { volts, limit } => [si(volts, "V"), format!("limit {}", si(limit, "A")), String::new()],
             Kind::Switch { closed } => ["slide switch".into(), if closed { "on".into() } else { "off".into() }, String::new()],
-            Kind::Button { held } => ["push button".into(), if held { "held".into() } else { "up".into() }, String::new()],
+            Kind::Button { held, nc } => [
+                if nc { "stop button" } else { "push button" }.into(),
+                if held { "held".into() } else { "up".into() },
+                if nc { "breaks when pressed".into() } else { String::new() },
+            ],
+            Kind::Diode => ["1N4001".into(), "about 0.7 V".into(), "band to -".into()],
+            Kind::Npn { .. } => ["BC547B, NPN".into(), "gain about 290".into(), "100 mA max".into()],
+            Kind::Relay { volts, nc } => [
+                format!("{} coil", value(volts, "V")),
+                si(volts * volts / crate::solver::RELAY_WATTS, "Ω"),
+                if nc { "normally closed".into() } else { "normally open".into() },
+            ],
             Kind::Led(c) => [c.name().into(), format!("about {:.1} V", c.vf()), "30 mA max".into()],
             Kind::Capacitor { farads, volts } if kind.polarised() => [farads_name(farads), format!("{} max", value(volts, "V")), "stripe to -".into()],
             Kind::Capacitor { farads, .. } => [farads_name(farads), "ceramic".into(), "either way round".into()],
@@ -1953,6 +2018,46 @@ pub fn part_facts(kind: Kind) -> Facts {
             &[("Off", "breaks the loop"), ("On", "closes it, as good as copper")],
             "Two contacts held together or apart. Current needs the whole loop closed.",
             "Off is a gap in the loop, and a gap is all it takes.",
+        ),
+        Kind::Button { nc: true, .. } => (
+            "Stop button",
+            &[("Momentary", "while held"), ("Breaks", "closed at rest, open while pressed")],
+            "A push button the other way round: its spring holds the contacts together, and pressing pulls them apart.",
+            "Red, and it stops things. Every machine should have one.",
+        ),
+        Kind::Diode => (
+            "Diode",
+            &[
+                ("One way", "current flows from anode to cathode (the band), never back"),
+                ("Drop", "about 0.7 V across it while it conducts"),
+                ("Rating", "1 A; much more and it cooks"),
+            ],
+            "A junction of two kinds of silicon. Pushed one way it lets current through once there is about 0.7 V across it; pushed the other way it blocks, as an open switch would.",
+            "A one-way street. Put the band where the current comes out.",
+        ),
+        Kind::Npn { .. } => (
+            "Transistor",
+            &[
+                ("Three legs", "collector, base, emitter: the emitter goes to -"),
+                ("Gain", "the current into the base lets about 290 times as much into the collector"),
+                ("Switch", "enough base current and it is fully on, a closed switch to the emitter"),
+                ("Base", "needs about 0.65 V to start; always feed it through a resistor"),
+                ("Rating", "100 mA through the collector, 0.625 W of heat"),
+            ],
+            "A small current from base to emitter opens the way for a big one from collector to emitter. Below about 0.6 V on the base nothing flows; above it the collector current follows the base current, many times over, until the transistor is fully on.",
+            "A relay with no moving parts and no click, and far quicker.",
+        ),
+        Kind::Relay { .. } => (
+            "Relay",
+            &[
+                ("Coil", "pulls in above 75% of its voltage, lets go below 5%"),
+                ("Contact", "a switch the coil works: open at rest, or closed at rest (NC)"),
+                ("Apart", "coil and contact share no copper: a small current switches a big one"),
+                ("Time", "8 ms to pull in, 5 ms to let go"),
+                ("Rating", "130% of its voltage for good; more cooks the coil"),
+            ],
+            "Current through the coil makes it a magnet, and the magnet pulls a springy contact over. Between pulling in and letting go there is a wide gap, so a relay stays as it is until the coil is clearly on or clearly off.",
+            "It clicks. That's how you know it thought about it.",
         ),
         Kind::Button { .. } => (
             "Button",
@@ -2365,7 +2470,7 @@ mod tests {
             Kind::Battery { volts: 1.0, r_int: 1.0 },
             Kind::Supply { volts: 1.0, limit: 1.0 },
             Kind::Switch { closed: false },
-            Kind::Button { held: false },
+            Kind::Button { held: false, nc: false },
             Kind::Led(crate::circuit::Colour::Red),
             Kind::Capacitor { farads: 1.0, volts: 1.0 },
         ] {
@@ -2686,5 +2791,100 @@ mod tests {
         assert_eq!(a.board.cell(a.at(3, 1)), Cell::Trace(Dir::E.bit() | Dir::W.bit()));
         a.act(Act::Undo);
         assert_eq!(a.board.cell(a.at(3, 1)), Cell::Empty);
+    }
+
+    /// Builds a job's master solution through the desk, as a player would: each part picked
+    /// from its drawer, turned with r, placed, bent with e if the master's is; every jumper laid
+    /// as a crossing and made one with e; then the copper, tile by tile.
+    fn build_master(a: &mut App, job: usize) -> Result<(), String> {
+        for k in 0..job {
+            a.solved[k] = true;
+        }
+        a.open_job(job);
+        let master = a.jobs[job].master.clone();
+        let fixed: Vec<Pos> = a.jobs[job].board.parts.iter().map(|p| p.pos).collect();
+        for p in &master.parts {
+            if fixed.contains(&p.pos) {
+                continue;
+            }
+            let slot = a
+                .drawer
+                .iter()
+                .position(|it| crate::job::same_part(it.kind, p.kind) && it.count != Some(0))
+                .ok_or(format!("{}: no {} left in the drawers", p.label, crate::job::kind_words(p.kind)))?;
+            a.act(Act::Slot(slot + 1));
+            let at = a.at(p.pos.x, p.pos.y);
+            a.cursor = at;
+            for _ in 0..4 {
+                if a.facing == p.facing {
+                    break;
+                }
+                a.act(Act::Rotate);
+            }
+            a.act(Act::Place);
+            if !matches!(a.board.cell(at), Cell::Part(_)) {
+                return Err(format!("{} wouldn't go down at {:?}", p.label, p.pos));
+            }
+            if let Kind::Npn { flip: true } = p.kind {
+                a.act(Act::Operate);
+            }
+        }
+        a.act(Act::Slot(0));
+        for y in 0..master.h {
+            for x in 0..master.w {
+                if master.cell(Pos { x, y }) == Cell::Jumper {
+                    for d in Dir::ALL {
+                        a.cursor = a.at(x, y);
+                        a.act(Act::Lay(d));
+                    }
+                    a.cursor = a.at(x, y);
+                    a.act(Act::Operate);
+                }
+            }
+        }
+        for y in 0..master.h {
+            for x in 0..master.w {
+                if let Cell::Trace(m) = master.cell(Pos { x, y }) {
+                    for d in Dir::ALL.into_iter().filter(|d| m & d.bit() != 0) {
+                        a.cursor = a.at(x, y);
+                        a.act(Act::Lay(d));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_masters_solution_can_be_built_at_the_desk_and_passes() {
+        for job in 0..crate::job::JOBS.len() {
+            let mut a = app();
+            if let Err(e) = build_master(&mut a, job) {
+                panic!("{}: {e}", a.jobs[job].name);
+            }
+            // The desk's board, cut back to the job's own area, is the master's to the tile.
+            let m = &a.jobs[job].master;
+            for y in 0..m.h {
+                for x in 0..m.w {
+                    let (got, want) = (a.board.cell(a.at(x, y)), m.cell(Pos { x, y }));
+                    let same = match (got, want) {
+                        (Cell::Part(i), Cell::Part(j)) => {
+                            let (p, q) = (&a.board.parts[i], &m.parts[j]);
+                            // A sensor's light or a switch's state is the bench's to set; a
+                            // transistor's bent legs are the builder's.
+                            let flip = |k: Kind| matches!(k, Kind::Npn { flip: true });
+                            p.facing == q.facing && crate::job::same_part(p.kind, q.kind) && flip(p.kind) == flip(q.kind)
+                        }
+                        (g, w) => g == w,
+                    };
+                    assert!(same, "{}: tile {x},{y} is {got:?}, the master's {want:?}", a.jobs[job].name);
+                }
+            }
+            a.update(0.2);
+            a.act(Act::Test);
+            let Overlay::Report(r) = &a.overlay else { panic!("{}: no report", a.jobs[job].name) };
+            assert!(r.pass, "{}: {:?}", a.jobs[job].name, r.rows);
+            assert!(r.goals[1].1, "{}: the master's own build misses the parts tick", a.jobs[job].name);
+        }
     }
 }

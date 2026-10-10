@@ -1,0 +1,44 @@
+# A flip-flop: two transistors, each one's collector feeding the other's base through 10k, so
+# whichever is on holds the other off, and stays so until a button grounds a base. PB2 grounds
+# Q2's base: Q2 off, its collector high, Q1 on, red.
+# PB1 grounds Q1's: green. The LEDs sit in the emitters, which keeps the off side's base, fed
+# from the on side's low collector, safely below turning on. Q2 has its legs bent the other way
+# so both bases face the middle. 1M can't switch either side fully on.
+name: Occupied sign
+customer: Café Ohlsson
+fee: 75
+note: The café's toilet needs a sign by the door: red for occupied, green for free. Whoever goes in presses OCCUPIED inside, and FREE on the way out, and the sign has to remember in between, all evening, without a switch that guests forget to flip back. PB1 is FREE, PB2 is OCCUPIED. Your relay could remember, but it clicks and it eats current; I'm told two transistors can do it in silence.
+battery: 625
+book: transistors, flip-flops
+part: B battery 9 1.5 N
+part: L led red N
+part: M led green N
+part: P button N
+part: O button N
+drawer: npn x2 0.60
+drawer: resistor 470 0.25 x2 0.10
+drawer: resistor 10k 0.25 x2 0.10
+drawer: resistor 1M 0.25 x2 0.10
+case: OCCUPIED: red | at 0.1 set PB2 on | at 0.3 set PB2 off | lit LED1 10m 20m at 1
+case: OCCUPIED: not green | at 0.1 set PB2 on | at 0.3 set PB2 off | dark LED2 at 1
+case: FREE: green | at 0.1 set PB2 on | at 0.3 set PB2 off | at 0.6 set PB1 on | at 0.8 set PB1 off | lit LED2 10m 20m at 1.5
+case: FREE: not red | at 0.1 set PB2 on | at 0.3 set PB2 off | at 0.6 set PB1 on | at 0.8 set PB1 off | dark LED1 at 1.5
+master-part: Y resistor 10k 0.25 W
+master-part: Z resistor 470 0.25 W
+master-part: W resistor 10k 0.25 W
+master-part: V resistor 470 0.25 W
+master-part: Q npn N
+master-part: q npn flip N
+master: ┌────────┐
+master: │.┌Y──┐..│
+master: └Z┤┌─Wx┬V┤
+master: ..Q┤..├q.│
+master: ..LP..OM.B
+master: ..└┴──┴┴─┘
+grid:
+..........
+..........
+..........
+..........
+..LP..OM.B
+..........

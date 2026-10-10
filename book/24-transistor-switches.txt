@@ -1,0 +1,17 @@
+title: Transistor switches
+unlock: oil-warning
+para: A transistor can do the opposite of a switch. Feed its base through a resistor from plus, and it is on; now let a switch connect the base to minus, and the base gets nothing, so it is off. Light when the switch is open, dark when it is closed: NOT, as the relay's NC contact did, with no moving parts.
+para: The base resistor has two jobs: it must let enough current into the base to switch the transistor fully on, and it must not burn while the switch holds the base at minus with the whole supply across it. 10 kΩ on 12 V does both: 1.1 mA into the base, 14 mW when shorted.
+para: Flip SW1 here.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume III (Semiconductors), section 4.2, The bipolar junction transistor as a switch: with no base current the transistor is cut off, with enough it is saturated.
+part: B battery 12 0.05 N
+part: S switch on W
+part: C resistor 680 0.25 W
+part: Y resistor 10k 0.25 W
+part: L led red W
+part: Q npn W
+grid:
+┌─Y─┬S┐
+├CL─Q┐│
+B....││
+└────┴┘

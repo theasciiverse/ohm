@@ -1,0 +1,38 @@
+# A dusk switch: a resistor on top, the LDR below, the middle to a transistor's base. In daylight
+# the LDR is a few kohm and holds the base under 0.6 V; at dusk it climbs past 15 kohm and the
+# base comes up. 47k on top: dark at 100 lux, fully on at 10. 10k lights in daylight; 1M never
+# lights. The LDR on top turns it on in the light instead.
+name: Jetty light
+customer: Mr Holm, the harbour
+fee: 70
+note: Last thing: the lamp on the end of the jetty. Every evening somebody has to walk out and switch it on, and every morning somebody forgets to switch it off. Could it light by itself when the daylight goes, and go out when it comes back? LDR1 looks at the sky.
+battery: 625
+book: transistors, transistor-sensors
+part: B battery 9 1.5 N
+part: T ldr 1000 N
+part: L led yellow N
+drawer: npn x1 0.60
+drawer: resistor 470 0.25 x1 0.10
+drawer: resistor 10k 0.25 x1 0.10
+drawer: resistor 47k 0.25 x1 0.10
+drawer: resistor 1M 0.25 x1 0.10
+case: daylight: off | set LDR1 1000 | dark LED1
+case: overcast (100 lux): off | set LDR1 100 | dark LED1
+case: dusk (10 lux): on | set LDR1 10 | lit LED1 10m 20m
+case: night: on | set LDR1 1 | lit LED1 10m 20m
+master-part: C resistor 470 0.25 N
+master-part: Q npn N
+master-part: R resistor 47k 0.25 N
+master: .┌─┬────┐.
+master: .C.R....│.
+master: .L.│....B.
+master: .Q─┤....│.
+master: .│.T....│.
+master: .└─┴────┘.
+grid:
+..........
+..........
+.L......B.
+..........
+...T......
+..........

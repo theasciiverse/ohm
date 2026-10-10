@@ -1,0 +1,17 @@
+title: Logic with contacts
+unlock: railway-signal
+para: Contacts make logic. Two in series light the lamp only if the first AND the second are closed. Two side by side light it if either one OR the other is. And an NC contact does the opposite of its coil: it is closed when the coil is NOT on.
+para: AND, OR and NOT together are enough to build any logic at all, however big: every on-and-off rule can be written with them.
+para: A relay also turns one switch into as many as you like, each on its own circuit, and turns a small current into a big one. Its coil is the input and its contacts the outputs.
+para: Here SW1 works the relay, and the NC contact lights the LED only while SW1 is off: NOT.
+source: Tony R. Kuphaldt, Lessons in Electric Circuits, volume IV (Digital), section 6.2, Digital logic functions: series contacts are an AND, parallel contacts an OR, and a normally-closed contact inverts (NOT).
+part: B battery 9 1.5 N
+part: S switch off W
+part: K relay 9 nc N
+part: R resistor 470 0.25 W
+part: L led green N
+grid:
+┌─S┐...
+├──K─R┐
+B..│..L
+└──┴──┘

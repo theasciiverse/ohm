@@ -1,0 +1,48 @@
+# A blinker (astable multivibrator): two transistors, each one's collector kicking the other's
+# base down through a capacitor. The base then climbs back through its resistor from the
+# battery, and when it reaches about 0.6 V that side turns on and kicks the other off. Each half
+# lasts about 0.62 R C (ln 2 R C if the collector fell the whole 9 V; the LED takes a little of
+# the fall): 82k and 10 uF flash 0.98 times a second. 68k flashes 1.18 times, 100k 0.81 times,
+# 100 uF ten times too slow. The two crossings need jumpers;
+# the board is a row taller than the others for room.
+name: Crossing lights
+customer: Mr Nilsson, model railway
+fee: 80
+note: The crossing on my layout has its barriers now, thanks to you, but it still needs its warning lights: two red lamps on the post that flash one after the other, left, right, left, right, about once a second each, for as long as the layout's switched on. No relay this time, please; the clicking spoils the sound of the trains. A transistor blinker, the book in the hobby shop calls it.
+battery: 0
+book: transistors, flip-flops, blinkers
+part: L led red N
+part: M led red N
+part: B battery 9 1.5 N
+drawer: npn x2 0.60
+drawer: resistor 470 0.25 x2 0.10
+drawer: resistor 68k 0.25 x2 0.10
+drawer: resistor 82k 0.25 x2 0.10
+drawer: resistor 100k 0.25 x2 0.10
+drawer: cap 10u 16 x2 0.30
+drawer: cap 100u 16 x2 0.40
+case: LED1 flashes about once a second | blinks LED1 0.85 1.15
+case: LED2 flashes about once a second | blinks LED2 0.85 1.15
+master-part: R resistor 470 0.25 N
+master-part: Y resistor 82k 0.25 N
+master-part: W resistor 82k 0.25 N
+master-part: V resistor 470 0.25 N
+master-part: C cap 10u 16 W
+master-part: D cap 10u 16 E
+master-part: Q npn N
+master-part: q npn flip N
+master: .┌─┬─┬─┬─┐
+master: .R.Y.W.V.│
+master: .L.│.│.M.│
+master: .├Cx─┤.│.B
+master: .│.├─xD┤.│
+master: .Q─┘.└─q.│
+master: .└─────┴─┘
+grid:
+..........
+..........
+.L.....M..
+.........B
+..........
+..........
+..........

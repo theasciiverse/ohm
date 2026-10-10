@@ -29,6 +29,11 @@
 //! `at SECONDS`, when it reads), or a timed check counted from the last `at` (`lasts LABEL MIN
 //! MAX`: stays lit that many seconds; `reaches LABEL VOLTS MIN MAX`: gets to that voltage).
 //! `cap FARADS [VOLTS]`: from 1 µF an electrolytic, + facing the side given, rated VOLTS (25).
+//! `stop-button`: closed until pressed. `relay VOLTS [nc]`: its coil's legs on the side given and
+//! its opposite, the contact's across; `nc` for a contact closed at rest. `blinks LABEL MIN MAX`:
+//! an LED or a lamp blinks, or a relay chatters, MIN to MAX times a second. `diode`: a 1N4001,
+//! anode on the side given. `npn [flip]`: a BC547B, collector on the side given, base a quarter
+//! turn clockwise (anticlockwise with `flip`).
 
 use crate::bench::{Case, Check};
 use crate::circuit::{Board, Colour, Dir, Kind};
@@ -53,6 +58,21 @@ pub const JOBS: &[(&str, &str)] = &[
     ("level-crossing", include_str!("../jobs/16-level-crossing.txt")),
     ("crossing-lifts", include_str!("../jobs/17-crossing-lifts.txt")),
     ("puppet-theatre", include_str!("../jobs/18-puppet-theatre.txt")),
+    ("spotlamps", include_str!("../jobs/19-spotlamps.txt")),
+    ("coffee-roaster", include_str!("../jobs/20-coffee-roaster.txt")),
+    ("railway-signal", include_str!("../jobs/21-railway-signal.txt")),
+    ("doorbell-buzzer", include_str!("../jobs/22-doorbell-buzzer.txt")),
+    ("cellar-light", include_str!("../jobs/23-cellar-light.txt")),
+    ("lighthouse", include_str!("../jobs/24-lighthouse.txt")),
+    ("flash-battery", include_str!("../jobs/25-flash-battery.txt")),
+    ("which-door", include_str!("../jobs/26-which-door.txt")),
+    ("flood-alarm", include_str!("../jobs/27-flood-alarm.txt")),
+    ("oil-warning", include_str!("../jobs/28-oil-warning.txt")),
+    ("freezer-alarm", include_str!("../jobs/29-freezer-alarm.txt")),
+    ("jetty-light", include_str!("../jobs/30-jetty-light.txt")),
+    ("occupied-sign", include_str!("../jobs/31-occupied-sign.txt")),
+    ("crossing-lights", include_str!("../jobs/32-crossing-lights.txt")),
+    ("quiz-timer", include_str!("../jobs/33-quiz-timer.txt")),
 ];
 
 /// The sandbox's id, for the save file.
@@ -119,11 +139,12 @@ impl Ticks {
 pub fn same_part(a: Kind, b: Kind) -> bool {
     let norm = |k: Kind| match k {
         Kind::Switch { .. } => Kind::Switch { closed: true },
-        Kind::Button { .. } => Kind::Button { held: false },
+        Kind::Button { nc, .. } => Kind::Button { held: false, nc },
         // A sensor's light or warmth and a pot's turn are where it is, not what it is.
         Kind::Ldr { .. } => Kind::Ldr { lux: 0.0 },
         Kind::Ntc { .. } => Kind::Ntc { celsius: 0.0 },
         Kind::Pot { ohms, .. } => Kind::Pot { ohms, turn: 0.0 },
+        Kind::Npn { .. } => Kind::Npn { flip: false },
         k => k,
     };
     norm(a) == norm(b)
@@ -164,7 +185,8 @@ pub fn kind(words: &[&str]) -> Result<(Kind, usize), String> {
             Some("on") => (Kind::Switch { closed: true }, 2),
             _ => (Kind::Switch { closed: true }, 1),
         },
-        Some("button") => (Kind::Button { held: false }, 1),
+        Some("button") => (Kind::Button { held: false, nc: false }, 1),
+        Some("stop-button") => (Kind::Button { held: false, nc: true }, 1),
         // An electrolytic's rating is optional (25 V); a ceramic below 1 µF has none.
         Some("cap") => {
             let farads = arg(1)?;
@@ -188,6 +210,16 @@ pub fn kind(words: &[&str]) -> Result<(Kind, usize), String> {
             Some(Ok(turn)) => (Kind::Pot { ohms: arg(1)?, turn }, 3),
             _ => (Kind::Pot { ohms: arg(1)?, turn: 0.5 }, 2),
         },
+        Some("diode") => (Kind::Diode, 1),
+        Some("npn") => match words.get(1).copied() {
+            Some("flip") => (Kind::Npn { flip: true }, 2),
+            _ => (Kind::Npn { flip: false }, 1),
+        },
+        // A relay by its coil's voltage, normally open unless `nc` follows.
+        Some("relay") => match words.get(2).copied() {
+            Some("nc") => (Kind::Relay { volts: arg(1)?, nc: true }, 3),
+            _ => (Kind::Relay { volts: arg(1)?, nc: false }, 2),
+        },
         Some("led") => {
             let c = match words.get(1).copied() {
                 Some("red") => Colour::Red,
@@ -210,7 +242,8 @@ pub fn kind_words(k: Kind) -> String {
         Kind::Battery { volts, r_int } => format!("battery {volts} {r_int}"),
         Kind::Supply { volts, limit } => format!("supply {volts} {limit}"),
         Kind::Switch { closed } => format!("switch {}", if closed { "on" } else { "off" }),
-        Kind::Button { .. } => "button".into(),
+        Kind::Button { nc: false, .. } => "button".into(),
+        Kind::Button { nc: true, .. } => "stop-button".into(),
         Kind::Capacitor { farads, volts } if volts.is_finite() => format!("cap {farads} {volts}"),
         Kind::Capacitor { farads, .. } => format!("cap {farads}"),
         Kind::TestPoint => "testpoint".into(),
@@ -219,6 +252,9 @@ pub fn kind_words(k: Kind) -> String {
         Kind::Ldr { lux } => format!("ldr {lux}"),
         Kind::Ntc { celsius } => format!("ntc {celsius}"),
         Kind::Pot { ohms, turn } => format!("pot {ohms} {turn}"),
+        Kind::Relay { volts, nc } => format!("relay {volts}{}", if nc { " nc" } else { "" }),
+        Kind::Diode => "diode".into(),
+        Kind::Npn { flip } => if flip { "npn flip".into() } else { "npn".into() },
     }
 }
 
@@ -273,6 +309,10 @@ fn case(line: &str) -> Result<Case, String> {
             }
             ["reaches", label, v, min, max] => {
                 c.check = Check::Reaches { point: label.to_string(), volts: number(v)?, min: number(min)?, max: number(max)? };
+                checked = true;
+            }
+            ["blinks", label, min, max] => {
+                c.check = Check::Blinks { part: label.to_string(), min: number(min)?, max: number(max)? };
                 checked = true;
             }
             ["lit", label, min, max] => {
@@ -467,7 +507,12 @@ impl Job {
         );
         drawer.extend([Kind::Ldr { lux: 100.0 }, Kind::Ntc { celsius: 20.0 }, Kind::Pot { ohms: 10e3, turn: 0.5 }, Kind::Pot { ohms: 1e3, turn: 0.5 }]);
         drawer.extend([0.5, 2.0, 5.0].map(|amps| Kind::Fuse { amps }));
-        drawer.extend([Kind::Switch { closed: false }, Kind::Button { held: false }]);
+        drawer.extend([Kind::Switch { closed: false }, Kind::Button { held: false, nc: false }, Kind::Button { held: false, nc: true }]);
+        drawer.extend([Kind::Diode, Kind::Npn { flip: false }]);
+        // Relays at the coil voltages the batteries give, normally open and normally closed.
+        for volts in [5.0, 9.0, 12.0] {
+            drawer.extend([Kind::Relay { volts, nc: false }, Kind::Relay { volts, nc: true }]);
+        }
         Job {
             id: SANDBOX.into(),
             name: "Sandbox".into(),
@@ -585,7 +630,7 @@ mod tests {
 
     const BAT45: Kind = Kind::Battery { volts: 4.5, r_int: 0.45 };
     const LAMP: Kind = Kind::Lamp { ohms: 15.0, watts: 1.35 };
-    const BUTTON: Kind = Kind::Button { held: false };
+    const BUTTON: Kind = Kind::Button { held: false, nc: false };
     const R: fn(f64) -> Kind = |ohms| Kind::Resistor { ohms, watts: 0.25 };
 
     const BAT12: Kind = Kind::Battery { volts: 12.0, r_int: 0.05 };
@@ -871,5 +916,290 @@ mod tests {
         let r = solve(17, &bare, &[('B', BAT9, Dir::N), ('S', SW, Dir::W), ('A', R(470.0), Dir::W), ('R', R(470.0), Dir::W), ('L', RED, Dir::N)]);
         assert_eq!((r[0], r[2]), (false, false));
     }
-}
 
+    const RELAY12: Kind = Kind::Relay { volts: 12.0, nc: false };
+    const RELAY12NC: Kind = Kind::Relay { volts: 12.0, nc: true };
+
+    #[test]
+    fn spotlamps_want_a_12v_relay_between_the_thin_wire_and_the_lamp() {
+        let rows = ["..........", ".┌─S─W─┐..", ".├─────K┐.", ".B.....│X.", ".└─────┴┘.", ".........."];
+        let spot = Kind::Lamp { ohms: 2.62, watts: 55.0 };
+        let with = |k: Kind| solve(18, &rows, &[('B', BAT12, Dir::N), ('S', SW, Dir::W), ('W', Kind::Resistor { ohms: 1.5, watts: 2.0 }, Dir::W), ('K', k, Dir::N), ('X', spot, Dir::N)]);
+        assert_eq!(with(RELAY12), [true, true]);
+        assert_eq!(with(RELAY12NC), [false, false], "lit the wrong way round");
+        assert_eq!(with(Kind::Relay { volts: 5.0, nc: false })[0], false, "the 5 V coil burns on 12 V");
+        // Straight through the thin wire: dim, and the wire burns.
+        let direct = ["..........", ".┌─S─W─┐..", ".│.....└┐.", ".B......X.", ".└──────┘.", ".........."];
+        let r = solve(18, &direct, &[('B', BAT12, Dir::N), ('S', SW, Dir::W), ('W', Kind::Resistor { ohms: 1.5, watts: 2.0 }, Dir::W), ('X', spot, Dir::N)]);
+        assert_eq!(r[0], false);
+    }
+
+    #[test]
+    fn coffee_roaster_wants_a_relay_holding_itself_in_across_start() {
+        let rows = ["..........", ".┌─┬Q┬P─┐.", ".L.├┐│..│.", ".│.└K┘..B.", ".└──┴───┘.", ".........."];
+        let lamp = Kind::Lamp { ohms: 28.8, watts: 5.0 };
+        let stop = Kind::Button { held: false, nc: true };
+        let with = |rows: &[&str], k: Kind| solve(19, rows, &[('B', BAT12, Dir::N), ('Q', BUTTON, Dir::W), ('P', stop, Dir::W), ('L', lamp, Dir::N), ('K', k, Dir::N)]);
+        assert_eq!(with(&rows, RELAY12), [true, true, true]);
+        assert_ne!(with(&rows, RELAY12NC), [true, true, true], "an NC relay buzzes on its own contact");
+        // No holding contact: it stops when START is let go.
+        let plain = ["..........", ".┌─┬Q┬P─┐.", ".L.├┐...│.", ".│..K...B.", ".└──┴───┘.", ".........."];
+        assert_eq!(with(&plain, RELAY12), [true, false, true]);
+    }
+
+    #[test]
+    fn railway_signal_wants_green_through_an_nc_relay() {
+        let rows = ["..........", ".┌─S┬─R─┐.", ".├──K─Q┐D.", ".B..│..G│.", ".└──┴──┴┘.", ".........."];
+        let bat9 = Kind::Battery { volts: 9.0, r_int: 1.5 };
+        let green = Kind::Led(Colour::Green);
+        let with = |k: Kind| solve(20, &rows, &[('B', bat9, Dir::N), ('S', SW, Dir::W), ('R', R(470.0), Dir::W), ('Q', R(470.0), Dir::W), ('K', k, Dir::N), ('D', RED, Dir::N), ('G', green, Dir::N)]);
+        assert_eq!(with(Kind::Relay { volts: 9.0, nc: true }), [true, true, true, true]);
+        assert_eq!(with(Kind::Relay { volts: 9.0, nc: false }), [true, false, false, true], "NO gets green backwards");
+    }
+
+    #[test]
+    fn doorbell_buzzer_wants_a_5v_relay_through_its_own_nc_contact() {
+        let rows = ["..........", ".┌─P┐┌┐...", ".│..└K┘...", ".B...│....", ".└───┘....", ".........."];
+        let with = |rows: &[&str], k: Kind| solve(21, rows, &[('B', BAT45, Dir::N), ('P', BUTTON, Dir::W), ('K', k, Dir::N)]);
+        assert_eq!(with(&rows, Kind::Relay { volts: 5.0, nc: true }), [true]);
+        assert_eq!(with(&rows, Kind::Relay { volts: 5.0, nc: false }), [false], "NO never starts");
+        assert_eq!(with(&rows, RELAY12NC), [false], "12 V can't pull in on 4.5 V");
+        // The coil straight from the button: it pulls in and stays.
+        let straight = ["..........", ".┌─P─┐....", ".│...K....", ".B...│....", ".└───┘....", ".........."];
+        assert_eq!(with(&straight, Kind::Relay { volts: 5.0, nc: true }), [false]);
+    }
+
+    #[test]
+    fn cellar_light_wants_4700uf_16v_across_the_coil() {
+        let rows = [".┌───┐....", ".├─P┐│....", ".│..├K┐...", ".B..CX│...", ".└──┴┴┘...", ".........."];
+        let lamp = Kind::Lamp { ohms: 28.8, watts: 5.0 };
+        let with = |c: Kind| solve(22, &rows, &[('B', BAT12, Dir::N), ('P', BUTTON, Dir::W), ('K', Kind::Relay { volts: 12.0, nc: false }, Dir::W), ('C', c, Dir::N), ('X', lamp, Dir::N)]);
+        assert_eq!(with(cap(4700e-6, 16.0)), [true, true]);
+        assert_eq!(with(cap(2200e-6, 16.0)), [true, false], "too short");
+        assert_eq!(with(cap(4700e-6, 10.0))[0], false, "the 10 V can vents");
+    }
+
+    #[test]
+    fn lighthouse_flashes_every_2_5_s_on_2200uf() {
+        let rows = ["..........", ".┌─X┐┌┐...", ".│..└K┤...", ".B...│C...", ".└───┴┘...", ".........."];
+        let lamp = Kind::Lamp { ohms: 28.8, watts: 5.0 };
+        let with = |k: Kind, c: f64| solve(23, &rows, &[('B', BAT12, Dir::N), ('X', lamp, Dir::W), ('K', k, Dir::N), ('C', cap(c, 16.0), Dir::N)]);
+        assert_eq!(with(RELAY12NC, 2200e-6), [true]);
+        assert_eq!(with(RELAY12NC, 1000e-6), [false], "too quick");
+        assert_eq!(with(RELAY12NC, 4700e-6), [false], "too slow");
+        assert_eq!(with(RELAY12, 2200e-6), [false], "NO never starts");
+    }
+
+    #[test]
+    fn flash_battery_wants_a_diode_in_series_the_right_way_round() {
+        let rows = ["..........", ".┌─D┬─R─┐.", ".B..C...L.", ".└──┴───┘.", "..........", ".........."];
+        let bat9 = Kind::Battery { volts: 9.0, r_int: 1.5 };
+        let green = Kind::Led(Colour::Green);
+        let with = |rows: &[&str], d: Dir| solve(24, rows, &[('B', bat9, Dir::N), ('D', Kind::Diode, d), ('C', cap(1000e-6, 16.0), Dir::N), ('R', R(470.0), Dir::W), ('L', green, Dir::N)]);
+        assert_eq!(with(&rows, Dir::W), [true, true]);
+        assert_eq!(with(&rows, Dir::E), [false, false], "backwards: dark, and it passes a reversed battery");
+        let bare = ["..........", ".┌──┬─R─┐.", ".B..C...L.", ".└──┴───┘.", "..........", ".........."];
+        assert_eq!(with(&bare, Dir::W), [true, false], "no diode: the capacitor vents");
+    }
+
+    #[test]
+    fn which_door_wants_a_diode_from_each_door_to_the_bell() {
+        let rows = [".┌─┬───┐..", ".│.P...Q..", ".B.├D┬E┤..", ".│.L.X.M..", ".│.R.│.S..", ".└─┴─┴─┘.."];
+        let lamp = Kind::Lamp { ohms: 15.0, watts: 1.35 };
+        let legend = |rows: &[&str]| {
+            solve(
+                25,
+                rows,
+                &[
+                    ('B', BAT45, Dir::N),
+                    ('P', BUTTON, Dir::N),
+                    ('Q', BUTTON, Dir::N),
+                    ('L', RED, Dir::N),
+                    ('M', Kind::Led(Colour::Green), Dir::N),
+                    ('X', lamp, Dir::N),
+                    ('R', R(150.0), Dir::N),
+                    ('S', R(150.0), Dir::N),
+                    ('D', Kind::Diode, Dir::W),
+                    ('E', Kind::Diode, Dir::E),
+                ],
+            )
+        };
+        assert_eq!(legend(&rows), [true; 6]);
+        let joined = [".┌─┬───┐..", ".│.P...Q..", ".B.├─┬─┤..", ".│.L.X.M..", ".│.R.│.S..", ".└─┴─┴─┘.."];
+        assert_eq!(legend(&joined), [true, false, true, true, false, true], "plain copper lights both");
+    }
+
+    #[test]
+    fn flood_alarm_wants_a_transistor_and_470_ohm() {
+        let rows = ["..........", ".┌─S─W─┐..", ".├─R─L─Q┐.", ".B......│.", ".└──────┘.", ".........."];
+        let with = |r: f64| solve(26, &rows, &[('B', BAT9, Dir::N), ('S', SW, Dir::W), ('W', R(10e3), Dir::W), ('R', R(r), Dir::W), ('L', RED, Dir::W), ('Q', Kind::Npn { flip: false }, Dir::W)]);
+        assert_eq!(with(470.0), [true, true]);
+        assert_eq!(with(220.0), [true, false], "too bright");
+        assert_eq!(with(1000.0), [true, false], "too dim");
+    }
+
+    #[test]
+    fn oil_warning_wants_a_transistor_not_with_10k_and_680() {
+        let rows = [".┌──┬───┐.", ".C..R...│.", ".L..│...B.", ".│..│...│.", ".Q──┴S┐.│.", ".└────┴─┘."];
+        let with = |rc: f64, rb: f64| solve(27, &rows, &[('B', BAT12, Dir::N), ('S', SW, Dir::W), ('L', RED, Dir::N), ('C', R(rc), Dir::N), ('R', R(rb), Dir::N), ('Q', Kind::Npn { flip: false }, Dir::N)]);
+        assert_eq!(with(680.0, 10e3), [true, true]);
+        assert_eq!(with(470.0, 10e3), [true, false], "too bright");
+        assert_eq!(with(1000.0, 10e3), [true, false], "too dim");
+        assert_eq!(with(680.0, 1e6), [true, false], "1M can't switch it on");
+        assert_eq!(with(680.0, 100.0)[0], false, "100 ohm burns while the switch shorts it");
+    }
+
+    #[test]
+    fn oil_warning_also_passes_with_the_switch_shorting_the_led() {
+        // No transistor: the LED and its resistor, the switch across the LED. Cheaper than the
+        // master's, and it wastes 17 mA while the engine runs; honest, so it passes.
+        let rows = [".┌R─────┐.", ".├──┐...│.", ".L..│...B.", ".│..│...│.", ".│..└S┐.│.", ".└────┴─┘."];
+        let r = solve(27, &rows, &[('B', BAT12, Dir::N), ('S', SW, Dir::W), ('L', RED, Dir::N), ('R', R(680.0), Dir::W)]);
+        assert_eq!(r, [true, true]);
+    }
+
+    /// The sensor-and-transistor layout of the freezer alarm and the jetty light: `top` above
+    /// the base, `bottom` below it.
+    fn sensor_switch(job: usize, top: Kind, bottom: Kind, led: Kind) -> Vec<bool> {
+        let rows = [".┌─┬────┐.", ".C.T....│.", ".L.│....B.", ".Q─┤....│.", ".│.U....│.", ".└─┴────┘."];
+        solve(job, &rows, &[('B', BAT9, Dir::N), ('C', R(470.0), Dir::N), ('L', led, Dir::N), ('Q', Kind::Npn { flip: false }, Dir::N), ('T', top, Dir::N), ('U', bottom, Dir::N)])
+    }
+
+    #[test]
+    fn freezer_alarm_wants_the_thermistor_over_3k3() {
+        let ntc = Kind::Ntc { celsius: -18.0 };
+        assert_eq!(sensor_switch(28, ntc, R(3300.0), RED), [true, true, true]);
+        assert_eq!(sensor_switch(28, ntc, R(2200.0), RED), [true, false, true], "too dim at 4 C");
+        assert_eq!(sensor_switch(28, ntc, R(10e3), RED)[0], false, "lit in the freezer");
+    }
+
+    #[test]
+    fn jetty_light_wants_47k_over_the_ldr() {
+        let ldr = Kind::Ldr { lux: 1000.0 };
+        let yellow = Kind::Led(Colour::Yellow);
+        let flip = |top: Kind, bottom: Kind| {
+            let rows = [".┌─┬────┐.", ".C.U....│.", ".L.│....B.", ".Q─┤....│.", ".│.T....│.", ".└─┴────┘."];
+            solve(29, &rows, &[('B', BAT9, Dir::N), ('C', R(470.0), Dir::N), ('L', yellow, Dir::N), ('Q', Kind::Npn { flip: false }, Dir::N), ('T', bottom, Dir::N), ('U', top, Dir::N)])
+        };
+        assert_eq!(flip(R(47e3), ldr), [true, true, true, true]);
+        assert_eq!(flip(R(10e3), ldr)[1], false, "lit when overcast");
+        assert_eq!(flip(R(1e6), ldr)[3], false, "never bright");
+    }
+
+    #[test]
+    fn occupied_sign_wants_a_flip_flop_with_10k_across() {
+        let rows = ["┌────────┐", "│.┌Y──┐..│", "└Z┤┌─Wx┬V┤", "..Q┤..├q.│", "..LP..OM.B", "..└┴──┴┴─┘"];
+        let with = |rb: f64, flip: bool| {
+            solve(
+                30,
+                &rows,
+                &[
+                    ('B', BAT9, Dir::N),
+                    ('L', RED, Dir::N),
+                    ('M', Kind::Led(Colour::Green), Dir::N),
+                    ('P', BUTTON, Dir::N),
+                    ('O', BUTTON, Dir::N),
+                    ('Y', R(rb), Dir::W),
+                    ('W', R(rb), Dir::W),
+                    ('Z', R(470.0), Dir::W),
+                    ('V', R(470.0), Dir::W),
+                    ('Q', Kind::Npn { flip: false }, Dir::N),
+                    ('q', Kind::Npn { flip }, Dir::N),
+                ],
+            )
+        };
+        assert_eq!(with(10e3, true), [true; 4]);
+        assert_ne!(with(1e6, true), [true; 4], "1M can't switch a side fully on");
+        assert_ne!(with(10e3, false), [true; 4], "Q2's base faces away");
+    }
+
+    #[test]
+    fn crossing_lights_want_82k_and_10uf_in_a_blinker() {
+        let rows = [".┌─┬─┬─┬─┐", ".R.Y.W.V.│", ".L.│.│.M.│", ".├Cx─┤.│.B", ".│.├─xD┤.│", ".Q─┘.└─q.│", ".└─────┴─┘"];
+        let with = |rb: f64, c: f64| {
+            solve(
+                31,
+                &rows,
+                &[
+                    ('B', BAT9, Dir::N),
+                    ('L', RED, Dir::N),
+                    ('M', RED, Dir::N),
+                    ('R', R(470.0), Dir::N),
+                    ('V', R(470.0), Dir::N),
+                    ('Y', R(rb), Dir::N),
+                    ('W', R(rb), Dir::N),
+                    ('C', cap(c, 16.0), Dir::W),
+                    ('D', cap(c, 16.0), Dir::E),
+                    ('Q', Kind::Npn { flip: false }, Dir::N),
+                    ('q', Kind::Npn { flip: true }, Dir::N),
+                ],
+            )
+        };
+        assert_eq!(with(82e3, 10e-6), [true; 2]);
+        assert_eq!(with(68e3, 10e-6), [false; 2], "too fast");
+        assert_eq!(with(100e3, 10e-6), [false; 2], "too slow");
+        assert_eq!(with(82e3, 100e-6), [false; 2], "far too slow");
+    }
+
+    #[test]
+    fn quiz_timer_wants_a_one_shot_of_82k_and_100uf() {
+        let rows = [".┌─┬─┬─┬─┐", ".R.T.P.V.│", ".L.│.S.M.│", ".├Kx─┤.│.B", ".│.├─xC┤.│", ".Q─┘.└─q.│", ".└─────┴─┘"];
+        let with = |rows: &[&str], rt: f64, c: f64| {
+            solve(
+                32,
+                rows,
+                &[
+                    ('B', BAT9, Dir::N),
+                    ('L', RED, Dir::N),
+                    ('M', Kind::Led(Colour::Green), Dir::N),
+                    ('P', BUTTON, Dir::N),
+                    ('R', R(470.0), Dir::N),
+                    ('V', R(470.0), Dir::N),
+                    ('T', R(rt), Dir::N),
+                    ('S', R(10e3), Dir::N),
+                    ('K', R(47e3), Dir::W),
+                    ('C', cap(c, 16.0), Dir::E),
+                    ('Q', Kind::Npn { flip: false }, Dir::N),
+                    ('q', Kind::Npn { flip: true }, Dir::N),
+                ],
+            )
+        };
+        assert_eq!(with(&rows, 82e3, 100e-6), [true; 5]);
+        assert_eq!(with(&rows, 68e3, 100e-6)[2], false, "too short");
+        assert_eq!(with(&rows, 100e3, 100e-6)[2], false, "too long");
+        assert_eq!(with(&rows, 82e3, 47e-6)[2], false, "far too short");
+        assert_eq!(with(&rows, 82e3, 220e-6)[2], false, "far too long");
+        let bare = [".┌─┬─┬─┬─┐", ".R.T.P.V.│", ".L.│.│.M.│", ".├Kx─┤.│.B", ".│.├─xC┤.│", ".Q─┘.└─q.│", ".└─────┴─┘"];
+        assert_ne!(with(&bare, 82e3, 100e-6), [true; 5], "the button straight to the base");
+    }
+
+    #[test]
+    fn a_flip_flop_remembers_across_a_rebuild() {
+        use crate::circuit::Live;
+        let mut b = Job::load(30).master;
+        let mut live = Live::build(&b);
+        let run = |live: &mut Live| {
+            for _ in 0..200 {
+                live.sim.step(0.001).unwrap();
+            }
+        };
+        let press = |b: &mut crate::circuit::Board, live: &mut Live, label: &str, held: bool| {
+            let i = b.part(label).unwrap();
+            b.parts[i].kind = Kind::Button { held, nc: false };
+            live.set_switch(i, held);
+        };
+        run(&mut live);
+        for (button, lit, dark) in [("PB2", "LED1", "LED2"), ("PB1", "LED2", "LED1")] {
+            press(&mut b, &mut live, button, true);
+            run(&mut live);
+            press(&mut b, &mut live, button, false);
+            run(&mut live);
+            // An edit elsewhere on the board rebuilds the circuit; the flip-flop must not forget.
+            let old = std::mem::replace(&mut live, Live::build(&b));
+            live.keep_charge(&old);
+            run(&mut live);
+            let amps = |l: &str| live.reading(&b, b.part(l).unwrap()).amps;
+            assert!(amps(lit) > 0.010 && amps(dark) < 1e-3, "after {button}: {lit} {} {dark} {}", amps(lit), amps(dark));
+        }
+    }
+}

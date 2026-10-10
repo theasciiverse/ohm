@@ -34,14 +34,21 @@ pub enum Sfx {
     Fail,
     Select,
     Denied,
+    /// A relay pulling in: a solid clack.
+    RelayIn,
+    /// A relay letting go: a lighter click as the spring takes the contact back.
+    RelayOut,
 }
 
-const ALL_SFX: [Sfx; 9] = [Sfx::Place, Sfx::Erase, Sfx::Lay, Sfx::Click, Sfx::Pop, Sfx::Pass, Sfx::Fail, Sfx::Select, Sfx::Denied];
+const ALL_SFX: [Sfx; 11] =
+    [Sfx::Place, Sfx::Erase, Sfx::Lay, Sfx::Click, Sfx::Pop, Sfx::Pass, Sfx::Fail, Sfx::Select, Sfx::Denied, Sfx::RelayIn, Sfx::RelayOut];
 
 #[derive(Clone, Copy, Default)]
 struct Live {
     /// Total current flowing, amps.
     amps: f32,
+    /// A relay buzzing on its own contact, how fast; 0 for none.
+    buzz: f32,
     silent: bool,
 }
 
@@ -96,6 +103,13 @@ impl Audio {
     pub fn set_current(&mut self, amps: f64) {
         if let Ok(mut l) = self.live.lock() {
             l.amps = amps as f32;
+        }
+    }
+
+    /// A relay chattering this many times a second, heard as a buzz; 0 stops it.
+    pub fn set_buzz(&mut self, hz: f64) {
+        if let Ok(mut l) = self.live.lock() {
+            l.buzz = hz as f32;
         }
     }
 
@@ -208,6 +222,18 @@ fn render_sfx(s: Sfx) -> Vec<f32> {
         Sfx::Fail => tune(&[(64.0, 0.16), (60.0, 0.16), (55.0, 0.4)], 0.16, square),
         Sfx::Select => tune(&[(84.0, 0.04), (91.0, 0.06)], 0.12, square),
         Sfx::Denied => synth(0.12, |t, _| square(95.0 * t) * (1.0 - t / 0.12) * 0.12),
+        // the armature slapping onto the core: a thud, a sharp tick and a short metal ring
+        Sfx::RelayIn => synth(0.06, |t, n| {
+            let thud = (TAU * 140.0 * t).sin() * (-t * 80.0).exp() * 0.5;
+            let tick = n.next() * (-t * 700.0).exp() * 0.6;
+            let ring = (TAU * 3100.0 * t).sin() * (-t * 120.0).exp() * 0.2;
+            (thud + tick + ring) * 0.45
+        }),
+        Sfx::RelayOut => synth(0.04, |t, n| {
+            let tick = n.next() * (-t * 900.0).exp() * 0.5;
+            let ring = (TAU * 2600.0 * t).sin() * (-t * 160.0).exp() * 0.15;
+            (tick + ring) * 0.35
+        }),
     }
 }
 
@@ -222,13 +248,16 @@ struct Current {
     hum: f32,
     level: f32,
     lp: f32,
+    /// The buzzing relay's phase and loudness.
+    rattle: f32,
+    rattle_level: f32,
 }
 
 const BLOCK: usize = 512;
 
 impl Current {
     fn new(live: Arc<Mutex<Live>>) -> Current {
-        Current { live, buf: vec![0.0; BLOCK], pos: BLOCK, noise: Noise(0xBEEF), hum: 0.0, level: 0.0, lp: 0.0 }
+        Current { live, buf: vec![0.0; BLOCK], pos: BLOCK, noise: Noise(0xBEEF), hum: 0.0, level: 0.0, lp: 0.0, rattle: 0.0, rattle_level: 0.0 }
     }
 
     fn render(&mut self) {
@@ -240,7 +269,15 @@ impl Current {
             self.hum += 50.0 / SRF;
             let hum = (self.hum * TAU).sin() * 0.6 + (self.hum * 2.0 * TAU).sin() * 0.3 + (self.hum * 3.0 * TAU).sin() * 0.1;
             let buzz = self.noise.next() * 0.08 * square(self.hum * 2.0).max(0.0);
-            let x = (hum * 0.06 + buzz * 0.05) * self.level;
+            // A buzzing relay: the armature hitting the core once a cycle, a raspy pulse.
+            let want = if live.silent || live.buzz <= 0.0 { 0.0 } else { 1.0 };
+            self.rattle_level += (want - self.rattle_level) * 0.002;
+            if live.buzz > 0.0 {
+                self.rattle += live.buzz / SRF;
+            }
+            let p = self.rattle - self.rattle.floor();
+            let rattle = ((-p * 30.0).exp() * 0.8 + self.noise.next() * (-p * 12.0).exp() * 0.4) * self.rattle_level;
+            let x = (hum * 0.06 + buzz * 0.05) * self.level + rattle * 0.12;
             self.lp += (x - self.lp) * 0.3;
             self.buf[i] = self.lp;
         }
@@ -291,7 +328,7 @@ mod tests {
 
     #[test]
     fn current_hums_while_flowing_and_hushes_after() {
-        let live = Arc::new(Mutex::new(Live { amps: 0.012, silent: false }));
+        let live = Arc::new(Mutex::new(Live { amps: 0.012, buzz: 0.0, silent: false }));
         let mut s = Current::new(live.clone());
         let loud = (0..SR as usize * 3).map(|_| s.next().unwrap()).fold(0.0f32, |m, x| m.max(x.abs()));
         assert!(loud > 0.005 && loud <= 1.0, "peak {loud}");

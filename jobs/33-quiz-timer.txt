@@ -1,0 +1,54 @@
+# A one-shot (monostable): the blinker with one cross link a resistor again. At rest Q1 is on,
+# fed from + through 82k, red; its low collector starves Q2 through the 47k link. PB1 feeds
+# Q2's base through 10k: Q2 turns on, green, its collector falls and kicks Q1's base far below
+# minus through the capacitor. Q1's base climbs back through 82k; at 0.6 V Q1 turns on again,
+# Q2 off. 0.63 R C: 82k and 100 uF light green 5.1 s from the press. 68k is too short, 100k
+# too long, 47 and 220 uF far out. The button straight to the base, with no 10k, burns Q2.
+name: Quiz timer
+customer: Elsa, 8
+fee: 80
+note: We play a quiz game at home and Dad always says I took too long to answer. So I want a timer: when the question is read out, Dad presses the button and the green light comes on, and when it goes out (about five seconds) my time is up and the red light comes back. The red light shows the rest of the time, so we know it's working.
+battery: 0
+book: transistors, flip-flops, blinkers, one-shots
+part: L led red N
+part: M led green N
+part: P button N
+part: B battery 9 1.5 N
+drawer: npn x2 0.60
+drawer: resistor 470 0.25 x2 0.10
+drawer: resistor 10k 0.25 x2 0.10
+drawer: resistor 47k 0.25 x2 0.10
+drawer: resistor 68k 0.25 x1 0.10
+drawer: resistor 82k 0.25 x1 0.10
+drawer: resistor 100k 0.25 x1 0.10
+drawer: cap 47u 16 x1 0.35
+drawer: cap 100u 16 x1 0.40
+drawer: cap 220u 16 x1 0.50
+case: at rest: red | lit LED1 5m 30m at 1.5
+case: at rest: not green | dark LED2 at 1.5
+case: green for 4.5 to 5.5 s | at 2 set PB1 on | at 2.2 set PB1 off | lasts LED2 4.5 5.5
+case: not red while green | at 2 set PB1 on | at 2.2 set PB1 off | dark LED1 at 4
+case: red again after | at 2 set PB1 on | at 2.2 set PB1 off | lit LED1 5m 30m at 9
+master-part: R resistor 470 0.25 N
+master-part: T resistor 82k 0.25 N
+master-part: S resistor 10k 0.25 N
+master-part: V resistor 470 0.25 N
+master-part: K resistor 47k 0.25 W
+master-part: C cap 100u 16 E
+master-part: Q npn N
+master-part: q npn flip N
+master: .┌─┬─┬─┬─┐
+master: .R.T.P.V.│
+master: .L.│.S.M.│
+master: .├Kx─┤.│.B
+master: .│.├─xC┤.│
+master: .Q─┘.└─q.│
+master: .└─────┴─┘
+grid:
+..........
+.....P....
+.L.....M..
+.........B
+..........
+..........
+..........

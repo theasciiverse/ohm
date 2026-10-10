@@ -20,7 +20,7 @@ c :: lay copper with plain arrows; c again stops
 space, Enter :: place the part in hand
 r :: turn the part under the cursor, or the one in hand
 x, Del :: erase at the cursor
-e :: flip a switch, press a button, change the light on an LDR or the warmth of a thermistor, turn a pot, make a crossing a jumper and back
+e :: flip a switch, press a button, change the light on an LDR or the warmth of a thermistor, turn a pot, bend a transistor's base to its other side, make a crossing a jumper and back
 t :: the test bench
 0-9 :: pick a drawer (0 is copper)
 Tab, shift+Tab :: the next or previous drawer
@@ -42,10 +42,10 @@ F1, ? :: this help
 
 The cursor follows the mouse, so any key acts on the tile under the pointer.
 
-click :: place the part in hand, flip a switch, change a sensor or a pot, make a crossing a jumper
+click :: place the part in hand, flip a switch, change a sensor or a pot, bend a transistor's base over, make a crossing a jumper
 drag :: lay copper
 right-click, right-drag :: erase
-hold :: a push button is pressed while you hold it
+hold :: a push button is pressed while you hold it; a red stop button opens while you hold it
 wheel :: turns a pot's knob, or turns a part round; picks a drawer over the drawers
 middle click :: clip the probe on
 middle drag :: move round the workbench
@@ -65,6 +65,6 @@ The DATASHEET is the card of the part under the cursor, or of the part in hand.
 
 # When things burn
 
-Too much current burns a resistor or an LED, just as on a real bench. A big capacitor (an electrolytic) has a + leg and a striped - side: put in backwards, or on more than its rated voltage, it vents. Nothing is lost: f or MEND puts the burnt parts back, and the test bench's hints say what went wrong.
+Too much current burns a resistor or an LED, just as on a real bench. A big capacitor (an electrolytic) has a + leg and a striped - side: put in backwards, or on more than its rated voltage, it vents. A relay's coil cooks on much more than its rated voltage. A transistor fed straight into its base, with no resistor, burns; so does a diode with nothing else to limit its current. Nothing is lost: f or MEND puts the burnt parts back, and the test bench's hints say what went wrong.
 
 The Master's Notebook (n) explains the electronics behind every job, with example circuits you can switch and measure.

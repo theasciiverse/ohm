@@ -35,6 +35,17 @@ pub const PAGES: &[(&str, &str)] = &[
     ("capacitors", include_str!("../book/15-capacitors.txt")),
     ("time-constant", include_str!("../book/16-time-constant.txt")),
     ("discharge", include_str!("../book/17-discharge.txt")),
+    ("relays", include_str!("../book/18-relays.txt")),
+    ("self-holding", include_str!("../book/19-self-holding.txt")),
+    ("relay-logic", include_str!("../book/20-relay-logic.txt")),
+    ("buzzers", include_str!("../book/21-buzzers.txt")),
+    ("diodes", include_str!("../book/22-diodes.txt")),
+    ("transistors", include_str!("../book/23-transistors.txt")),
+    ("transistor-switches", include_str!("../book/24-transistor-switches.txt")),
+    ("transistor-sensors", include_str!("../book/25-transistor-sensors.txt")),
+    ("flip-flops", include_str!("../book/26-flip-flops.txt")),
+    ("blinkers", include_str!("../book/27-blinkers.txt")),
+    ("one-shots", include_str!("../book/28-one-shots.txt")),
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -203,5 +214,88 @@ mod tests {
         // Discharge: 10k in, 33k across, stops at 3.45 V.
         let v = reading(run("discharge", &[], 6.0, "TP1")).volts;
         assert!((v - 3.45).abs() < 0.02, "{v}");
+        // Chapter 4: the relay lights its lamp once SW1 is on, and the NC contact is a NOT.
+        assert!((reading(run("relays", &[("SW1", true)], 0.5, "LP1")).amps - 0.416).abs() < 0.005);
+        assert!(reading(run("relays", &[], 0.5, "LP1")).amps < 1e-6);
+        assert!(reading(run("relay-logic", &[], 0.5, "LED1")).amps > 0.010);
+        assert!(reading(run("relay-logic", &[("SW1", true)], 0.5, "LED1")).amps < 1e-6);
+        // Self-holding: START pressed and let go, the lamp stays on; STOP puts it out.
+        let p = Page::all().into_iter().find(|p| p.id == "self-holding").unwrap();
+        let mut b = p.board.unwrap();
+        let mut live = Live::build(&b);
+        let press = |b: &mut crate::circuit::Board, live: &mut Live, label: &str, held: bool| {
+            let i = b.part(label).unwrap();
+            let crate::circuit::Kind::Button { nc, .. } = b.parts[i].kind else { panic!() };
+            b.parts[i].kind = crate::circuit::Kind::Button { held, nc };
+            live.set_switch(i, held != nc);
+            for _ in 0..300 {
+                live.sim.step(0.001).unwrap();
+            }
+        };
+        press(&mut b, &mut live, "PB1", true);
+        press(&mut b, &mut live, "PB1", false);
+        assert!(live.reading(&b, b.part("LP1").unwrap()).amps > 0.4);
+        press(&mut b, &mut live, "PB2", true);
+        press(&mut b, &mut live, "PB2", false);
+        assert!(live.reading(&b, b.part("LP1").unwrap()).amps < 1e-6);
+        // Buzzers: with PB1 held the relay chatters about 77 times a second.
+        let p = Page::all().into_iter().find(|p| p.id == "buzzers").unwrap();
+        let mut b = p.board.unwrap();
+        let i = b.part("PB1").unwrap();
+        b.parts[i].kind = crate::circuit::Kind::Button { held: true, nc: false };
+        let mut live = Live::build(&b);
+        let k = b.part("K1").unwrap();
+        let (mut flips, mut was) = (0, false);
+        for _ in 0..1000 {
+            live.sim.step(0.001).unwrap();
+            if live.energised(k) != was {
+                flips += 1;
+                was = !was;
+            }
+        }
+        assert!((70..=80).contains(&(flips / 2)), "{flips}");
+        // Chapter 5: 0.7 V across the diode; the transistor switches 14 mA; NOT; the dusk switch.
+        let (live, b, _) = run("diodes", &[("SW1", true)], 0.5, "D1");
+        let v = live.reading(&b, b.part("D1").unwrap()).volts;
+        assert!((0.65..0.75).contains(&v), "{v}");
+        assert!(live.reading(&b, b.part("LED1").unwrap()).amps > 0.010);
+        let i = reading(run("transistors", &[("SW1", true)], 0.5, "LED1")).amps;
+        assert!((i - 0.0146).abs() < 0.001, "{i}");
+        assert!(reading(run("transistors", &[], 0.5, "LED1")).amps < 1e-6);
+        assert!(reading(run("transistor-switches", &[], 0.5, "LED1")).amps < 1e-4);
+        assert!(reading(run("transistor-switches", &[("SW1", false)], 0.5, "LED1")).amps > 0.010);
+        assert!(reading(run("transistor-sensors", &[], 0.5, "LED1")).amps > 0.010);
+        // Chapter 6: the blinker flashes about once a second; the one-shot stays green about 5 s.
+        let b = Page::all().into_iter().find(|p| p.id == "blinkers").unwrap().board.unwrap();
+        let mut live = Live::build(&b);
+        let l = b.part("LED1").unwrap();
+        let (mut rises, mut was) = (Vec::new(), false);
+        for n in 0..6000 {
+            live.sim.step(0.001).unwrap();
+            let on = live.reading(&b, l).amps > 0.001;
+            if on && !was {
+                rises.push(n);
+            }
+            was = on;
+        }
+        let period = (rises[rises.len() - 1] - rises[1]) as f64 / (rises.len() - 2) as f64 / 1000.0;
+        assert!((0.9..1.1).contains(&period), "{period} {rises:?}");
+        let mut b = Page::all().into_iter().find(|p| p.id == "one-shots").unwrap().board.unwrap();
+        let mut live = Live::build(&b);
+        let (pb, green) = (b.part("PB1").unwrap(), b.part("LED2").unwrap());
+        let mut lit = 0;
+        for n in 0..9000 {
+            if n == 1000 || n == 1200 {
+                b.parts[pb].kind = crate::circuit::Kind::Button { held: n == 1000, nc: false };
+                let mut new = Live::build(&b);
+                new.keep_charge(&live);
+                live = new;
+            }
+            live.sim.step(0.001).unwrap();
+            if live.reading(&b, green).amps > 0.001 {
+                lit += 1;
+            }
+        }
+        assert!((4500..6000).contains(&lit), "{lit}");
     }
 }
