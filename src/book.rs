@@ -46,6 +46,7 @@ pub const PAGES: &[(&str, &str)] = &[
     ("flip-flops", include_str!("../book/26-flip-flops.txt")),
     ("blinkers", include_str!("../book/27-blinkers.txt")),
     ("one-shots", include_str!("../book/28-one-shots.txt")),
+    ("logic-chips", include_str!("../book/29-logic-chips.txt")),
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -297,5 +298,12 @@ mod tests {
             }
         }
         assert!((4500..6000).contains(&lit), "{lit}");
+        // Logic chips: shut, the battery gives 9 uA, all through the pull-up; open, the LED
+        // lights at about 10 mA through 470 and the gate's 222 ohms.
+        let amps = reading(run("logic-chips", &[("SW1", true)], 0.2, "BT1")).amps;
+        assert!((amps - 9e-6).abs() < 0.5e-6, "{amps}");
+        assert!(reading(run("logic-chips", &[("SW1", true)], 0.2, "LED1")).amps < 1e-6);
+        let i = reading(run("logic-chips", &[("SW1", false)], 0.2, "LED1")).amps;
+        assert!((0.009..0.011).contains(&i), "{i}");
     }
 }

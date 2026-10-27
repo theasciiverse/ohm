@@ -63,7 +63,7 @@ pub enum Overlay {
 }
 
 /// The binder's cards in order, one per kind of part; each kind here is the one drawn.
-const BINDER: [Kind; 15] = [
+const BINDER: [Kind; 16] = [
     Kind::Battery { volts: 4.5, r_int: 0.45 },
     Kind::Supply { volts: 5.0, limit: 0.1 },
     Kind::Led(crate::circuit::Colour::Red),
@@ -79,6 +79,7 @@ const BINDER: [Kind; 15] = [
     Kind::Relay { volts: 12.0, nc: false },
     Kind::Diode,
     Kind::Npn { flip: false },
+    Kind::Chip(crate::circuit::Chip::Cd4011),
 ];
 
 /// The binder card a part belongs on.
@@ -251,6 +252,7 @@ pub fn part_name(k: Kind) -> String {
         Kind::Diode => "Diode 1N4001".into(),
         Kind::Npn { .. } => "Transistor BC547".into(),
         Kind::Relay { volts, nc } => format!("Relay {}{}", value(volts, "V"), if nc { " NC" } else { "" }).replace(" V", "\u{a0}V"),
+        Kind::Chip(c) => format!("Chip {}", c.name()),
     }
 }
 
@@ -511,6 +513,20 @@ impl App {
         // On straight copper the part goes in line with it, splitting the trace; anywhere but an
         // empty hole or straight copper is taken.
         let facing = match self.board.cell(at) {
+            Cell::Empty if matches!(kind, Kind::Chip(_)) => {
+                if !self.board.fits(kind, at, self.facing, None) {
+                    let (w, h) = crate::circuit::footprint(kind, self.facing);
+                    self.audio.play(Sfx::Denied);
+                    self.say(format!("A chip needs {w} by {h} empty holes, from here to the right and down. Turn it with r."));
+                    return;
+                }
+                self.facing
+            }
+            Cell::Trace(_) if matches!(kind, Kind::Chip(_)) => {
+                self.audio.play(Sfx::Denied);
+                self.say("A chip needs empty holes: put it down first, then lay copper to its legs.");
+                return;
+            }
             Cell::Empty => self.facing,
             Cell::Trace(m) => match in_line(m, kind, self.facing) {
                 Some(f) => f,
@@ -596,10 +612,16 @@ impl App {
                 self.say("That part belongs to the gadget: it stays as it is.");
             }
             Cell::Part(i) => {
-                self.remember();
-                let p = &mut self.board.parts[i];
-                p.facing = rotate(p.facing);
-                log::info!("rotated {} to {:?}", p.label, p.facing);
+                let before = self.snapshot();
+                let to = rotate(self.board.parts[i].facing);
+                if !self.board.turn(i, to) {
+                    self.audio.play(Sfx::Denied);
+                    self.say("There's no room to turn it here.");
+                    return;
+                }
+                self.undo.push(before);
+                self.redo.clear();
+                log::info!("rotated {} to {:?}", self.board.parts[i].label, to);
                 self.audio.play(Sfx::Place);
                 self.rebuilt();
             }
@@ -1784,6 +1806,10 @@ impl App {
             Kind::Ldr { lux } => [light_name(lux).into(), format!("{lux} lux"), si(kind.sensor_ohms().unwrap(), "Ω")],
             Kind::Ntc { celsius } => [temp_name(celsius).into(), format!("{celsius} °C"), si(kind.sensor_ohms().unwrap(), "Ω")],
             Kind::Pot { ohms, turn } => [si(ohms, "Ω"), format!("turned {:.0}%", turn * 100.0), String::new()],
+            Kind::Chip(c) => {
+                let (vdd, vss) = c.supply();
+                [format!("{}, CMOS", c.name()), "four NAND gates".into(), format!("+ on {vdd}, - on {vss}")]
+            }
         };
         let f = part_facts(kind);
         let rules = f.rules.iter().map(|(k, r)| (k.to_string(), r.to_string())).collect();
@@ -1874,12 +1900,14 @@ impl App {
         };
         let (scoped, _, target, on_example) = self.scoped();
         let what = match scoped.cell(target) {
+            Cell::Part(i) if matches!(scoped.parts[i].kind, Kind::Chip(_)) => format!("{} leg voltage", scoped.parts[i].label),
             Cell::Part(i) => format!("{} current", scoped.parts[i].label),
             Cell::Trace(_) | Cell::Jumper => "copper voltage".into(),
             _ => "nothing".into(),
         };
         let scope_unit = match scoped.cell(target) {
             Cell::Trace(_) | Cell::Jumper => "V",
+            Cell::Part(i) if matches!(scoped.parts[i].kind, Kind::Chip(_)) => "V",
             _ => "A",
         };
         let scope_label = if on_example {
@@ -2059,6 +2087,18 @@ pub fn part_facts(kind: Kind) -> Facts {
             "Current through the coil makes it a magnet, and the magnet pulls a springy contact over. Between pulling in and letting go there is a wide gap, so a relay stays as it is until the coil is clearly on or clearly off.",
             "It clicks. That's how you know it thought about it.",
         ),
+        Kind::Chip(_) => (
+            "Logic chip",
+            &[
+                ("NAND", "each gate's output is low only while both its inputs are high"),
+                ("Power", "+ to pin 14, - to pin 7, 3 to 18 V; backwards it burns"),
+                ("Inputs", "high above half the supply, low below; they take no current"),
+                ("Never float", "an input wired to nothing keeps whatever it last had: give it a resistor to + or -"),
+                ("Outputs", "+ or - through about 200 ohms: enough for an LED with its resistor"),
+            ],
+            "Inside are tiny switches, transistors, a pair for each input: one pair joins the output to + unless both inputs are high, the other joins it to - only when both are. Its inputs only feel voltage, so it can listen to a switch through 100 kΩ.",
+            "Four little deciders in one black bug. Feed it, and never leave a leg hanging.",
+        ),
         Kind::Button { .. } => (
             "Button",
             &[("Momentary", "while held"), ("Springs back", "open again when let go")],
@@ -2189,6 +2229,28 @@ pub fn build_bike_lamp(a: &mut App) {
 /// What the scope and meter read at a tile of a running board: (the scope's value, the meter).
 fn reading_on(b: &Board, live: &Live, at: Pos) -> (f64, Meter) {
     match b.cell(at) {
+        Cell::Part(i) if matches!(b.parts[i].kind, Kind::Chip(_)) => {
+            // A chip: the leg under the pointer, from ground, and the package's supply.
+            let Kind::Chip(chip) = b.parts[i].kind else { unreachable!() };
+            let r = live.reading(b, i);
+            let label = &b.parts[i].label;
+            let leg = b.parts[i].pin_ports().iter().position(|(p, _)| *p == at);
+            let mut more = vec![("supply".into(), si(r.volts, "V")), ("draws".into(), si(r.amps, "A"))];
+            let high = live.gates_high(i);
+            for (g, &(_, _, y)) in chip.gates().iter().enumerate() {
+                more.push((format!("gate {} (pin {y})", (b'A' + g as u8) as char), if high.get(g) == Some(&true) { "high".into() } else { "low".into() }));
+            }
+            if r.burnt {
+                more.push(("state".into(), "burnt out".into()));
+            }
+            match leg {
+                Some(k) => {
+                    let v = live.pin_volts(i, k);
+                    (v, Meter { value: v, unit: "V", what: format!("{label} {}", chip.pin_name(k + 1)), second: String::new(), more })
+                }
+                None => (r.volts, Meter { value: r.volts, unit: "V", what: format!("{label} supply"), second: String::new(), more }),
+            }
+        }
         Cell::Part(i) => {
             let r = live.reading(b, i);
             let label = &b.parts[i].label;

@@ -448,6 +448,13 @@ fn led_rgb(colour: Colour) -> Rgb {
 
 /// Draws a part on the tile at `ox, oy`.
 fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: Look, bg: Rgb) {
+    if let Kind::Chip(_) = kind {
+        // A chip on its own: the tile with its first pin (galleries and cards).
+        let part = crate::circuit::Part { kind, pos: Pos { x: 0, y: 0 }, facing, label: String::new(), fixed: false, burnt: look.burnt };
+        let first = part.pin_ports()[0].0;
+        draw_chip_tile(buf, ox, oy, &part, first, look, bg);
+        return;
+    }
     let horizontal = matches!(facing, Dir::W | Dir::E);
     let art = match (kind, horizontal) {
         (Kind::Resistor { .. }, true) => &RESISTOR_H,
@@ -485,6 +492,7 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
         (Kind::Npn { .. }, false) => &NPN_V,
         (Kind::Relay { .. }, true) => &RELAY_H,
         (Kind::Relay { .. }, false) => &RELAY_V,
+        (Kind::Chip(_), _) => unreachable!("drawn by draw_chip_tile"),
     };
     let bands = match kind {
         Kind::Resistor { ohms, .. } => resistor_bands(ohms),
@@ -597,6 +605,87 @@ fn draw_part(buf: &mut Buffer, ox: u16, oy: u16, kind: Kind, facing: Dir, look: 
     }
 }
 
+/// One tile of a chip at `at`: its legs on the edge where a pin comes out, the black body on
+/// the rest, the notch at the end it faces, and its type and label printed along the middle.
+fn draw_chip_tile(buf: &mut Buffer, ox: u16, oy: u16, part: &crate::circuit::Part, at: Pos, look: Look, bg: Rgb) {
+    let Kind::Chip(chip) = part.kind else { return };
+    let (w, h) = part.size();
+    let (lx, ly) = (at.x - part.pos.x, at.y - part.pos.y);
+    let body: Rgb = if look.burnt {
+        (46, 36, 30)
+    } else if look.heat > 1.0 {
+        mix((30, 30, 34), (150, 50, 30), (look.heat - 1.0).min(1.0))
+    } else {
+        (30, 30, 34)
+    };
+    let ink: Rgb = (176, 176, 170);
+    let legs: Vec<Dir> = part.pin_ports().iter().filter(|(p, _)| *p == at).map(|&(_, d)| d).collect();
+    for row in 0..3u16 {
+        for col in 0..5u16 {
+            // The edge a leg comes out of shows the board, with the leg across it.
+            let leg = legs.iter().find(|d| match d {
+                Dir::N => row == 0,
+                Dir::S => row == 2,
+                Dir::W => col < 2,
+                Dir::E => col > 2,
+            });
+            match leg {
+                Some(Dir::N | Dir::S) if col == 2 => put(buf, ox + col, oy + row, "│", LEAD, bg),
+                Some(Dir::W | Dir::E) if row == 1 => put(buf, ox + col, oy + row, "─", LEAD, bg),
+                Some(_) => put(buf, ox + col, oy + row, " ", LEAD, bg),
+                None => put(buf, ox + col, oy + row, " ", ink, body),
+            }
+        }
+    }
+    let horizontal = h == 2;
+    // The notch: a bite out of the body at the facing end, on the middle line.
+    let notch = match part.facing {
+        Dir::W if lx == 0 => Some((0, if ly == 0 { 2 } else { 0 })),
+        Dir::E if lx == w - 1 => Some((4, if ly == 0 { 2 } else { 0 })),
+        Dir::N if ly == 0 => Some((if lx == 0 { 4 } else { 0 }, 0)),
+        Dir::S if ly == h - 1 => Some((if lx == 0 { 4 } else { 0 }, 2)),
+        _ => None,
+    };
+    if let Some((col, row)) = notch {
+        put(buf, ox + col, oy + row, " ", ink, bg);
+    }
+    let label = if part.label.is_empty() { String::new() } else { part.label.clone() };
+    if horizontal {
+        // The type along the upper half of the body, the label along the lower.
+        let (text, row) = if ly == 0 { (chip.name().to_string(), 2) } else { (label, 0) };
+        let span = w * 5;
+        let start = span.saturating_sub(text.chars().count()) / 2;
+        for (k, ch) in text.chars().enumerate() {
+            let x = start + k;
+            if x / 5 == lx {
+                put(buf, ox + (x % 5) as u16, oy + row, ch.encode_utf8(&mut [0; 4]), ink, body);
+            }
+        }
+    } else {
+        // Standing up: two characters a row down the middle, the type then the label.
+        let mut lines: Vec<String> = chip.name().chars().collect::<Vec<_>>().chunks(2).map(|c| c.iter().collect()).collect();
+        lines.push(String::new());
+        lines.extend(label.chars().collect::<Vec<_>>().chunks(2).map(|c| c.iter().collect::<String>()));
+        let top = (h * 3).saturating_sub(lines.len()) / 2;
+        for (k, line) in lines.iter().enumerate() {
+            let y = top + k;
+            if y / 3 != ly {
+                continue;
+            }
+            let chars: Vec<char> = line.chars().collect();
+            let (ch, col) = if lx == 0 { (chars.first(), 4) } else { (chars.get(1), 0) };
+            if let Some(ch) = ch {
+                put(buf, ox + col, oy + (y % 3) as u16, ch.encode_utf8(&mut [0; 4]), ink, body);
+            }
+        }
+    }
+    if !look.burnt && look.heat > 1.5 && lx == 0 && ly == 0 {
+        let puff = mix(bg, (150, 150, 150), (look.heat - 1.5) * 2.0);
+        put(buf, ox + 1, oy, "░", puff, bg);
+        put(buf, ox + 3, oy, "▒", puff, bg);
+    }
+}
+
 // ---------------------------------------------------------------- the board
 
 /// Everything the board needs to be drawn: the board, its running circuit if powered, the
@@ -684,6 +773,24 @@ impl BoardView<'_> {
                 };
                 fill(buf, Rect::new(tx, ty, TILE_W, TILE_H), bg);
                 let net = |d: Dir| self.live.and_then(|l| l.net.net_at(b, p, d));
+                // A chip in hand, shown over every tile it would cover from the cursor.
+                let chip_ghost = match (self.ghost, self.cursor) {
+                    (Some((kind @ Kind::Chip(_), facing)), Some(c)) => {
+                        let part = crate::circuit::Part { kind, pos: c, facing, label: String::new(), fixed: false, burnt: false };
+                        part.covers(p).then_some(part)
+                    }
+                    _ => None,
+                };
+                if let Some(part) = chip_ghost
+                    && matches!(b.cell(p), Cell::Empty)
+                {
+                    if self.cursor != Some(p) {
+                        fill(buf, Rect::new(tx, ty, TILE_W, TILE_H), BOARD);
+                    }
+                    draw_chip_tile(buf, tx, ty, &part, p, Look::default(), bg);
+                    fade(buf, Rect::new(tx, ty, TILE_W, TILE_H), bg, 0.55);
+                    continue;
+                }
                 match b.cell(p) {
                     Cell::Empty => {
                         put(buf, tx + 2, ty + 1, "·", if in_focus(p) { HOLE_FOCUS } else { HOLE }, bg);
@@ -714,7 +821,11 @@ impl BoardView<'_> {
                     }
                     Cell::Part(i) => {
                         let part = &b.parts[i];
-                        draw_part(buf, tx, ty, part.kind, part.facing, self.look(i), bg);
+                        if let Kind::Chip(_) = part.kind {
+                            draw_chip_tile(buf, tx, ty, part, p, self.look(i), bg);
+                        } else {
+                            draw_part(buf, tx, ty, part.kind, part.facing, self.look(i), bg);
+                        }
                     }
                 }
                 if self.probe == Some(p) {
@@ -2266,6 +2377,7 @@ fn shelf_art(id: &str) -> ([&'static str; 4], &'static str) {
         "occupied-sign" => (["KKKKKKKK", "KrrKggKK", "KKKKKKKK", "...KK..."], "toilet sign"),
         "crossing-lights" => ([".rKKKKr.", "...KK...", "...KK...", "...KK..."], "warning post"),
         "quiz-timer" => (["KKKKKKKK", "KgKKKKrK", "KKKKKKKK", "...KR..."], "quiz timer"),
+        "boathouse-alarm" => (["..PPPP..", ".PPPPPP.", ".PDDPrP.", ".PDDPPP."], "boathouse"),
         _ => (["........", ".GGGGGG.", ".GGGGGG.", "........"], "gadget"),
     }
 }

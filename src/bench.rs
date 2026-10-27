@@ -483,8 +483,42 @@ pub fn diagnose(b: &Board) -> Vec<Hint> {
         }
     }
 
-    // 3. Pins with nothing else on their net.
+    // 3. Pins with nothing else on their net. A chip's unused legs are fine; its power legs
+    // and the inputs of a gate in use are not.
     for (i, p) in b.parts.iter().enumerate() {
+        if let Kind::Chip(chip) = p.kind {
+            let (vdd, vss) = chip.supply();
+            if others(i, vdd - 1) == 0 || others(i, vss - 1) == 0 {
+                hints.push(hint(
+                    format!("{} has no power.", p.label),
+                    format!("A chip needs + on its {} and - on its {}, like any other part that does something.", chip.pin_name(vdd), chip.pin_name(vss)),
+                    format!("Lay copper from {}'s pin {vdd} to + and from pin {vss} to -.", p.label),
+                    vec![p.pos],
+                ));
+                continue;
+            }
+            // An input whose copper reaches nothing but chip inputs floats.
+            let is_input = |part: usize, k: usize| match b.parts[part].kind {
+                Kind::Chip(c) => c.gates().iter().any(|&(a, bb, _)| k + 1 == a || k + 1 == bb),
+                _ => false,
+            };
+            for &(a, bb, y) in chip.gates() {
+                if others(i, y - 1) == 0 {
+                    continue;
+                }
+                for k in [a, bb] {
+                    if net.pins_on(net.pin_net[i][k - 1]).iter().all(|&(q, kk)| is_input(q, kk)) {
+                        hints.push(hint(
+                            format!("An input of {} is floating.", p.label),
+                            format!("{}'s {} reaches nothing that sets its voltage, so it keeps whatever charge it last had, and the gate does what it likes.", p.label, chip.pin_name(k)),
+                            format!("Join pin {k} to + or -, through a resistor if a switch will pull it the other way."),
+                            vec![p.pos],
+                        ));
+                    }
+                }
+            }
+            continue;
+        }
         if p.kind.is_source() {
             continue;
         }
@@ -553,6 +587,10 @@ pub fn diagnose(b: &Board) -> Vec<Hint> {
                 Kind::Resistor { watts, .. } | Kind::Lamp { watts, .. } => (
                     format!("{} had to turn {} into heat; it's rated for {}.", p.label, si(peak[i], "W"), si(watts, "W")),
                     format!("Use a larger value for {}, or a part rated for more power.", p.label),
+                ),
+                Kind::Chip(_) => (
+                    format!("{} burnt out: powered backwards, on more than 20 V, or an output pushed too hard (more than 0.1 W in it, as a short does).", p.label),
+                    format!("Check + goes to pin 14 and - to pin 7, and that every output drives its load through a resistor."),
                 ),
                 Kind::Npn { .. } => (
                     format!("{} carried more than it can: 100 mA through its collector, or 0.625 W of heat.", p.label),
@@ -849,5 +887,27 @@ mod tests {
         };
         assert!(with(Dir::W).is_empty(), "{:?}", with(Dir::W));
         assert!(with(Dir::E).iter().any(|h| h.nudge == "D1 is blocking."), "{:?}", with(Dir::E));
+    }
+
+    #[test]
+    fn a_chip_without_power_or_with_a_floating_input_is_named() {
+        use crate::circuit::Chip;
+        let legend = [
+            ('B', Kind::Battery { volts: 9.0, r_int: 1.5 }, Dir::N),
+            ('S', Kind::Switch { closed: true }, Dir::N),
+            ('L', Kind::Led(crate::circuit::Colour::Red), Dir::E),
+            ('P', Kind::Resistor { ohms: 1e6, watts: 0.25 }, Dir::N),
+            ('R', Kind::Resistor { ohms: 470.0, watts: 0.25 }, Dir::W),
+            ('I', Kind::Chip(Chip::Cd4011), Dir::W),
+        ];
+        let hints = |rows: &[&str]| diagnose(&Board::parse(rows, &legend).unwrap());
+        let good = ["┌┬──────┬┐", "P│      ││", "│IIIIIII││", "│IIIIIII│B", "└┴┤└─RLx┘│", "  S    │ │", "  └────┴─┘"];
+        assert!(hints(&good).is_empty(), "{:?}", hints(&good));
+        // Pin 14 left unjoined.
+        let unpowered = ["┌───────┬┐", "P       ││", "│IIIIIII││", "│IIIIIII│B", "└┴┤└─RLx┘│", "  S    │ │", "  └────┴─┘"];
+        assert!(hints(&unpowered).iter().any(|h| h.nudge == "IC1 has no power."), "{:?}", hints(&unpowered));
+        // The gate's inputs joined only to each other.
+        let floating = ["┌┬──────┬┐", "P│      ││", "│IIIIIII││", "│IIIIIII│B", "│└┘└─RLx┘│", "│ S    │ │", "└─┴────┴─┘"];
+        assert!(hints(&floating).iter().any(|h| h.nudge == "An input of IC1 is floating."), "{:?}", hints(&floating));
     }
 }

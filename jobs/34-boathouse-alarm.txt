@@ -1,0 +1,44 @@
+# The first chip: a CD4011 NAND gate with its two inputs tied together is a NOT gate. The door
+# contact holds the inputs at - while the door is shut; a 1M pull-up lifts them to + when it
+# opens, the output falls and sinks the LED's current through 470. Shut, the whole thing draws
+# 9 uA through the pull-up: about eight years on a 9 V block. Wrong: no pull-up (the inputs float
+# and keep their last level, low: never lit), 10k or 100k pull-ups (they work, but drain the
+# battery 100 and 10 times faster), the LED and its resistor across the door contact without a
+# chip (it works, wasting 19 mA all season), the LED from the output to - (lit the wrong way).
+name: Boathouse alarm
+customer: Mr Holm, the harbour
+fee: 90
+note: Somebody has been in my boathouse twice this summer. I want a lamp in the harbour office window that lights when the boathouse door is open, so I can see it from my desk. There's no mains out there, only a 9 V block, and it has to last the whole season and the winter too. SW1 is the door contact: closed while the door is shut, open when somebody opens it. My cousin says one of these new CMOS chips sips so little you can forget the battery.
+battery: 625
+book: logic-chips
+part: B battery 9 1.5 N
+part: S switch on N
+part: L led red E
+drawer: cd4011 x1 1.20
+drawer: resistor 470 0.25 x2 0.10
+drawer: resistor 10k 0.25 x2 0.10
+drawer: resistor 100k 0.25 x2 0.10
+drawer: resistor 1M 0.25 x2 0.10
+case: door shut: dark | dark LED1
+case: door open: lit | at 0.5 set SW1 off | lit LED1 5m 20m at 1
+case: shut again: dark | at 0.5 set SW1 off | at 1 set SW1 on | dark LED1 at 1.5
+life: door shut: dark
+hint-battery: A pull-up only has to lift an input that takes no current: the bigger it is, the less it drains while the door is shut.
+master-part: P resistor 1M 0.25 N
+master-part: R resistor 470 0.25 W
+master-part: I cd4011 W
+master: ┌┬──────┬┐
+master: P│......││
+master: │IIIIIII││
+master: │IIIIIII│B
+master: └┴┤└─RLx┘│
+master: ..S....│.│
+master: ..└────┴─┘
+grid:
+..........
+..........
+..........
+.........B
+......L...
+..S.......
+..........

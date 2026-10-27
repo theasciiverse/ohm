@@ -1,0 +1,22 @@
+title: Logic chips
+unlock: boathouse-alarm
+para: A logic chip is a crowd of tiny transistors in a black package with legs. The CD4011 holds four NAND gates: each gate's output is low only while both its inputs are high, and high otherwise. Tie a gate's two inputs together and it turns a high into a low and a low into a high: a NOT gate.
+para: It needs power like anything else: + to pin 14, - to pin 7, anything from 3 to 18 V. Pin 1 is next to the notch; the legs count down one side and back up the other. Wired backwards it burns.
+para: Its inputs only feel voltage: above half the supply is high, below is low, and they take no current at all. So a big resistor can hold an input high (a pull-up) while a switch pulls it low, and the pair drain next to nothing. But an input wired to nothing doesn't read low: it keeps whatever charge it last had, and may wander. Never leave an input floating.
+para: Its outputs push to + or pull to - through about 200 Ω, enough for an LED with its resistor. An LED from + into an output lights when the output goes low.
+para: Here SW1 holds the gate's inputs at -: the output is high and the LED dark. Click SW1 open and the 1 MΩ lifts the inputs, the output falls, and the LED lights. Shut, it all draws 9 µA.
+source: Texas Instruments, CD4011B, CD4012B, CD4023B types (CMOS NAND gates) datasheet, SCHS021D: the pinout, 3 to 18 V, inputs low below 30 % and high above 70 % of the supply, input current at most 0.1 µA, 5 pF input capacitance, output currents (1 mA at 0.4 V from a 5 V supply, 2.6 mA at 0.5 V from 10 V). Floating CMOS inputs: Paul Horowitz and Winfield Hill, The Art of Electronics (3rd edition, 2015), chapter 10, Digital logic.
+part: B battery 9 1.5 N
+part: S switch on N
+part: L led red E
+part: P resistor 1M 0.25 N
+part: R resistor 470 0.25 W
+part: I cd4011 W
+grid:
+┌┬──────┬┐
+P│......││
+│IIIIIII││
+│IIIIIII│B
+└┴┤└─RLx┘│
+..S....│.│
+..└────┴─┘

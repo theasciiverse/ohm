@@ -119,6 +119,65 @@ pub enum Kind {
     /// turn clockwise, like a pot's wiper; `flip`: its legs bent the other way, the base a quarter
     /// turn anticlockwise.
     Npn { flip: bool },
+    /// A chip in a dual-in-line package, spanning several tiles (see `Chip`).
+    Chip(Chip),
+}
+
+/// A chip: which one, its pins and what they do.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Chip {
+    /// Four two-input NAND gates (TI's CD4011B, SCHS021D): inputs 1 and 2 to output 3, 5 and 6
+    /// to 4, 8 and 9 to 10, 12 and 13 to 11; VSS (-) on pin 7, VDD (+) on pin 14.
+    Cd4011,
+}
+
+impl Chip {
+    pub fn name(self) -> &'static str {
+        match self {
+            Chip::Cd4011 => "CD4011",
+        }
+    }
+
+    pub fn pins(self) -> usize {
+        match self {
+            Chip::Cd4011 => 14,
+        }
+    }
+
+    /// Each gate as (input, input, output), pin numbers from 1.
+    pub fn gates(self) -> &'static [(usize, usize, usize)] {
+        match self {
+            Chip::Cd4011 => &[(1, 2, 3), (5, 6, 4), (8, 9, 10), (12, 13, 11)],
+        }
+    }
+
+    /// The supply pins, + then -, numbered from 1.
+    pub fn supply(self) -> (usize, usize) {
+        (self.pins(), self.pins() / 2)
+    }
+
+    /// What pin `n` (from 1) is, for hints and the meter.
+    pub fn pin_name(self, n: usize) -> &'static str {
+        const CD4011: [&str; 14] = [
+            "pin 1, gate A input",
+            "pin 2, gate A input",
+            "pin 3, gate A output",
+            "pin 4, gate B output",
+            "pin 5, gate B input",
+            "pin 6, gate B input",
+            "pin 7, VSS (-)",
+            "pin 8, gate C input",
+            "pin 9, gate C input",
+            "pin 10, gate C output",
+            "pin 11, gate D output",
+            "pin 12, gate D input",
+            "pin 13, gate D input",
+            "pin 14, VDD (+)",
+        ];
+        match self {
+            Chip::Cd4011 => CD4011[n - 1],
+        }
+    }
 }
 
 /// A fuse's cold resistance (chosen: small next to anything it protects).
@@ -163,6 +222,7 @@ impl Kind {
             Kind::Relay { .. } => "K",
             Kind::Diode => "D",
             Kind::Npn { .. } => "Q",
+            Kind::Chip(_) => "IC",
         }
     }
 
@@ -180,6 +240,7 @@ impl Kind {
             Kind::TestPoint => 1,
             Kind::Pot { .. } | Kind::Npn { .. } => 3,
             Kind::Relay { .. } => 4,
+            Kind::Chip(c) => c.pins(),
             _ => 2,
         }
     }
@@ -203,6 +264,7 @@ impl Kind {
             (Kind::Npn { .. }, _) => "base (B)",
             (Kind::Relay { .. }, 0 | 1) => "coil leg",
             (Kind::Relay { .. }, _) => "contact leg",
+            (Kind::Chip(c), n) => c.pin_name(n + 1),
             (_, 0) => "first leg",
             _ => "second leg",
         }
@@ -223,7 +285,50 @@ pub struct Part {
 }
 
 impl Part {
-    /// The side each pin faces.
+    /// Tiles across and down. A chip stands as in its datasheet's top view when it faces
+    /// north (the notch at the top: pins 1 to n/2 down the left, the rest up the right), two
+    /// tiles wide; every other part takes one tile.
+    pub fn size(&self) -> (usize, usize) {
+        footprint(self.kind, self.facing)
+    }
+
+    /// The tiles the part covers, its corner `pos` first.
+    pub fn tiles(&self) -> Vec<Pos> {
+        let (w, h) = self.size();
+        (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| Pos { x: self.pos.x + x, y: self.pos.y + y }).collect()
+    }
+
+    pub fn covers(&self, p: Pos) -> bool {
+        let (w, h) = self.size();
+        p.x >= self.pos.x && p.x < self.pos.x + w && p.y >= self.pos.y && p.y < self.pos.y + h
+    }
+
+    /// Each pin's tile and the side it faces, in pin order.
+    pub fn pin_ports(&self) -> Vec<(Pos, Dir)> {
+        let Kind::Chip(chip) = self.kind else { return self.pin_sides().into_iter().map(|d| (self.pos, d)).collect() };
+        let half = chip.pins() / 2;
+        // Facing north: pin k (from 1) down the left side, then back up the right.
+        let north = (0..chip.pins()).map(|k| if k < half { (0, k, Dir::W) } else { (1, chip.pins() - 1 - k, Dir::E) });
+        let turns = match self.facing {
+            Dir::N => 0,
+            Dir::E => 1,
+            Dir::S => 2,
+            Dir::W => 3,
+        };
+        north
+            .map(|(mut x, mut y, mut d)| {
+                let (mut w, mut h) = (2, half);
+                for _ in 0..turns {
+                    (x, y, d) = (h - 1 - y, x, d.cw());
+                    (w, h) = (h, w);
+                }
+                let _ = w;
+                (Pos { x: self.pos.x + x, y: self.pos.y + y }, d)
+            })
+            .collect()
+    }
+
+    /// The side each pin faces, for a part on one tile.
     pub fn pin_sides(&self) -> Vec<Dir> {
         match self.kind.pins() {
             1 => vec![self.facing],
@@ -234,6 +339,15 @@ impl Part {
             4 => vec![self.facing, self.facing.opposite(), self.facing.cw(), self.facing.cw().opposite()],
             _ => vec![self.facing, self.facing.opposite()],
         }
+    }
+}
+
+/// Tiles across and down for a part of this kind standing this way.
+pub fn footprint(kind: Kind, facing: Dir) -> (usize, usize) {
+    match kind {
+        Kind::Chip(c) if matches!(facing, Dir::N | Dir::S) => (2, c.pins() / 2),
+        Kind::Chip(c) => (c.pins() / 2, 2),
+        _ => (1, 1),
     }
 }
 
@@ -289,21 +403,56 @@ impl Board {
         match self.cell(p) {
             Cell::Trace(m) => m & d.bit() != 0,
             Cell::Jumper => true,
-            Cell::Part(i) => self.parts[i].pin_sides().contains(&d),
+            Cell::Part(i) => self.parts[i].pin_ports().contains(&(p, d)),
             Cell::Empty | Cell::Blocked => false,
         }
     }
 
-    /// Places a part on an empty tile, labelled with the next free number for its kind.
+    /// Can a part of this kind stand here, its corner at `pos`: every tile it needs on the
+    /// board and empty (or held by part `except`, for turning a part where it stands)?
+    pub fn fits(&self, kind: Kind, pos: Pos, facing: Dir, except: Option<usize>) -> bool {
+        let (w, h) = footprint(kind, facing);
+        pos.x + w <= self.w
+            && pos.y + h <= self.h
+            && (0..h).all(|y| {
+                (0..w).all(|x| match self.cell(Pos { x: pos.x + x, y: pos.y + y }) {
+                    Cell::Empty => true,
+                    Cell::Part(i) => Some(i) == except,
+                    _ => false,
+                })
+            })
+    }
+
+    /// Places a part on empty tiles, its corner at `pos`, labelled with the next free number
+    /// for its kind.
     pub fn place(&mut self, kind: Kind, pos: Pos, facing: Dir, fixed: bool) -> Option<usize> {
-        if self.cell(pos) != Cell::Empty {
+        if !self.fits(kind, pos, facing, None) {
             return None;
         }
         let prefix = kind.prefix();
         let n = (1..).find(|n| self.part(&format!("{prefix}{n}")).is_none()).unwrap();
         self.parts.push(Part { kind, pos, facing, label: format!("{prefix}{n}"), fixed, burnt: false });
-        self.set(pos, Cell::Part(self.parts.len() - 1));
-        Some(self.parts.len() - 1)
+        let i = self.parts.len() - 1;
+        for t in self.parts[i].tiles() {
+            self.set(t, Cell::Part(i));
+        }
+        Some(i)
+    }
+
+    /// Turns part `i` to face `facing` where it stands, if it fits that way.
+    pub fn turn(&mut self, i: usize, facing: Dir) -> bool {
+        let part = &self.parts[i];
+        if !self.fits(part.kind, part.pos, facing, Some(i)) {
+            return false;
+        }
+        for t in self.parts[i].tiles() {
+            self.set(t, Cell::Empty);
+        }
+        self.parts[i].facing = facing;
+        for t in self.parts[i].tiles() {
+            self.set(t, Cell::Part(i));
+        }
+        true
     }
 
     /// Lays copper from tile `p` toward side `d`, on both tiles. Parts keep their pins: copper
@@ -320,12 +469,12 @@ impl Board {
                 true
             }
             Cell::Jumper => true,
-            Cell::Part(i) => b.parts[i].pin_sides().contains(&side),
+            Cell::Part(i) => b.parts[i].pin_ports().contains(&(at, side)),
             Cell::Blocked => false,
         };
         let can = |b: &Board, at: Pos, side: Dir| match b.cell(at) {
             Cell::Empty | Cell::Trace(_) | Cell::Jumper => true,
-            Cell::Part(i) => b.parts[i].pin_sides().contains(&side),
+            Cell::Part(i) => b.parts[i].pin_ports().contains(&(at, side)),
             Cell::Blocked => false,
         };
         if !can(self, p, d) || !can(self, q, d.opposite()) {
@@ -341,8 +490,10 @@ impl Board {
         match self.cell(p) {
             Cell::Part(i) if self.parts[i].fixed => false,
             Cell::Part(i) => {
+                for t in self.parts[i].tiles() {
+                    self.set(t, Cell::Empty);
+                }
                 self.parts.remove(i);
-                self.set(p, Cell::Empty);
                 for c in &mut self.cells {
                     if let Cell::Part(j) = c
                         && *j > i
@@ -419,7 +570,16 @@ impl Board {
                         if let Some(m) = trace_mask(ch) {
                             b.set(p, Cell::Trace(m));
                         } else if let Some((_, kind, facing)) = legend.iter().find(|l| l.0 == ch) {
-                            b.place(*kind, p, *facing, false);
+                            // A chip is drawn by repeating its character over its tiles: the
+                            // first one in reading order is its corner.
+                            if let Cell::Part(i) = b.cell(p)
+                                && b.parts[i].kind == *kind
+                            {
+                                continue;
+                            }
+                            if b.place(*kind, p, *facing, false).is_none() {
+                                return Err(format!("no room for {ch:?} at {x},{y}"));
+                            }
                         } else {
                             return Err(format!("unknown tile {ch:?} at {x},{y}"));
                         }
@@ -534,7 +694,7 @@ impl Netlist {
         let pin_net = b
             .parts
             .iter()
-            .map(|part| part.pin_sides().iter().map(|&d| port_net[port(part.pos, d)].unwrap()).collect())
+            .map(|part| part.pin_ports().iter().map(|&(p, d)| port_net[port(p, d)].unwrap()).collect())
             .collect();
         Netlist { nets, port_net, pin_net, dangling }
     }
@@ -614,6 +774,8 @@ pub struct Live {
     caps: Vec<(Pos, usize)>,
     /// Each part's kind, to match what is carried over.
     parts_kind: Vec<Kind>,
+    /// A chip's gates, in the chip's order (the first is also in `ids`).
+    gates: Vec<Vec<PartId>>,
 }
 
 impl Live {
@@ -625,8 +787,10 @@ impl Live {
         let mut ids = Vec::new();
         let mut lower = Vec::new();
         let mut caps = Vec::new();
+        let mut gates = Vec::new();
         for (i, part) in b.parts.iter().enumerate() {
             lower.push(None);
+            gates.push(Vec::new());
             let pin = |k: usize| nodes[net.pin_net[i][k]];
             let id = match part.kind {
                 Kind::Resistor { ohms, watts } | Kind::Lamp { ohms, watts } => {
@@ -666,15 +830,32 @@ impl Live {
                     lower[i] = sim.contact(coil);
                     Some(coil)
                 }
+                Kind::Chip(chip) => {
+                    caps.push((part.pos, i));
+                    let (vdd, vss) = chip.supply();
+                    let (vdd, vss) = (pin(vdd - 1), pin(vss - 1));
+                    let mut first = None;
+                    for &(a, bb, y) in chip.gates() {
+                        let g = sim.nand(pin(y - 1), pin(a - 1), pin(bb - 1), vdd, vss, first);
+                        first.get_or_insert(g);
+                        gates[i].push(g);
+                    }
+                    for &(a, bb, _) in chip.gates() {
+                        for k in [a, bb] {
+                            sim.capacitor(pin(k - 1), vss, solver::CMOS_INPUT_FARADS);
+                        }
+                    }
+                    first
+                }
             };
-            if let Some(id) = id
-                && part.burnt
-            {
-                sim.set_burnt(id, true);
+            if part.burnt {
+                for id in id.iter().chain(&gates[i]) {
+                    sim.set_burnt(*id, true);
+                }
             }
             ids.push(id);
         }
-        Live { net, sim, nodes, ids, lower, caps, parts_kind: b.parts.iter().map(|p| p.kind).collect() }
+        Live { net, sim, nodes, ids, lower, caps, parts_kind: b.parts.iter().map(|p| p.kind).collect(), gates }
     }
 
     /// Keeps the charge of every capacitor, and the state of every relay and transistor, that
@@ -690,6 +871,11 @@ impl Live {
                     (Kind::Relay { .. }, Kind::Relay { .. }) => self.sim.set_energised(id, old.sim.energised(was)),
                     (Kind::Npn { .. }, Kind::Npn { .. }) => self.sim.set_junctions(id, old.sim.junctions(was)),
                     (Kind::Capacitor { .. }, Kind::Capacitor { .. }) => self.sim.set_cap_voltage(id, old.sim.cap_voltage(was)),
+                    (Kind::Chip(a), Kind::Chip(b)) if a == b => {
+                        for (g, h) in self.gates[i].iter().zip(&old.gates[j]) {
+                            self.sim.set_gate_high(*g, old.sim.gate_high(*h));
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -745,7 +931,17 @@ impl Live {
             if part.kind.pins() < 2 || r.burnt {
                 continue;
             }
-            let into_net: Vec<f64> = if part.kind.is_source() {
+            let into_net: Vec<f64> = if let Kind::Chip(chip) = part.kind {
+                // A chip: each gate's output current out of its pin, drawn from + or sunk to -.
+                let mut v = vec![0.0; chip.pins()];
+                let (vdd, vss) = chip.supply();
+                for (&(_, _, y), &g) in chip.gates().iter().zip(&self.gates[i]) {
+                    let amps = self.sim.current(g);
+                    v[y - 1] += amps;
+                    v[if self.sim.gate_high(g) { vdd } else { vss } - 1] -= amps;
+                }
+                v
+            } else if part.kind.is_source() {
                 vec![r.amps, -r.amps]
             } else if let (Kind::Npn { .. }, Some(id)) = (part.kind, self.ids[i]) {
                 // A transistor: collector and base currents in, their sum out of the emitter.
@@ -762,8 +958,8 @@ impl Live {
             } else {
                 vec![-r.amps, r.amps]
             };
-            for (k, &d) in part.pin_sides().iter().enumerate() {
-                if let Some(q) = b.neighbour(part.pos, d)
+            for (k, &(at, d)) in part.pin_ports().iter().enumerate() {
+                if let Some(q) = b.neighbour(at, d)
                     && let Some(c) = node(q, d.opposite())
                 {
                     inject[c] += into_net[k];
@@ -814,9 +1010,33 @@ impl Live {
         self.sim.voltage(self.nodes[net])
     }
 
+    /// A chip's gates are high.
+    pub fn gates_high(&self, part: usize) -> Vec<bool> {
+        self.gates[part].iter().map(|&g| self.sim.gate_high(g)).collect()
+    }
+
+    /// The voltage on pin `k` (from 0) of a part, from ground.
+    pub fn pin_volts(&self, part: usize, k: usize) -> f64 {
+        self.net_volts(self.net.pin_net[part][k])
+    }
+
     pub fn reading(&self, b: &Board, part: usize) -> Reading {
         let nets = &self.net.pin_net[part];
         let v = |k: usize| self.net_volts(nets[k]);
+        if let Kind::Chip(chip) = b.parts[part].kind {
+            // A chip: its supply voltage, the current it draws from + (what its high outputs
+            // source), the heat of its hottest gate.
+            let (vdd, vss) = chip.supply();
+            let gates = &self.gates[part];
+            let amps: f64 = gates.iter().filter(|&&g| self.sim.gate_high(g)).map(|&g| self.sim.current(g).max(0.0)).sum();
+            return Reading {
+                volts: v(vdd - 1) - v(vss - 1),
+                amps: if amps < 1e-9 { 0.0 } else { amps },
+                watts: gates.iter().map(|&g| self.sim.power(g)).sum(),
+                heat: gates.iter().map(|&g| self.sim.heat(g)).fold(0.0, f64::max),
+                burnt: gates.iter().any(|&g| self.sim.burnt(g)),
+            };
+        }
         let volts = if b.parts[part].kind.pins() == 1 { v(0) } else { v(0) - v(1) };
         // Below a nanoamp is the solver's tiny ground leak, not current: read it as none.
         let quiet = |v: f64| if v.abs() < 1e-9 { 0.0 } else { v };
@@ -958,6 +1178,64 @@ pub(crate) mod tests {
         assert!((at(0, 0)[Dir::S as usize] + i).abs() < 1e-6, "{:?}", at(0, 0));
         // Bottom row runs west, back to the battery's - terminal.
         assert!((at(2, 2)[Dir::W as usize] - i).abs() < 1e-6, "{:?}", at(2, 2));
+    }
+
+    #[test]
+    fn a_chip_stands_as_in_its_datasheet_and_turns() {
+        let chip = Kind::Chip(Chip::Cd4011);
+        let mut b = Board::new(8, 8);
+        let i = b.place(chip, Pos { x: 0, y: 0 }, Dir::N, false).unwrap();
+        // Notch up: pin 1 top left facing west, pin 7 bottom left, 8 bottom right, 14 top right.
+        let ports = b.parts[i].pin_ports();
+        assert_eq!(ports[0], (Pos { x: 0, y: 0 }, Dir::W));
+        assert_eq!(ports[6], (Pos { x: 0, y: 6 }, Dir::W));
+        assert_eq!(ports[7], (Pos { x: 1, y: 6 }, Dir::E));
+        assert_eq!(ports[13], (Pos { x: 1, y: 0 }, Dir::E));
+        assert_eq!(b.parts[i].tiles().len(), 14);
+        // Notch west: pins 1 to 7 along the bottom, left to right, 14 at the top left.
+        let mut b = Board::new(8, 8);
+        let i = b.place(chip, Pos { x: 0, y: 0 }, Dir::W, false).unwrap();
+        let ports = b.parts[i].pin_ports();
+        assert_eq!(ports[0], (Pos { x: 0, y: 1 }, Dir::S));
+        assert_eq!(ports[6], (Pos { x: 6, y: 1 }, Dir::S));
+        assert_eq!(ports[7], (Pos { x: 6, y: 0 }, Dir::N));
+        assert_eq!(ports[13], (Pos { x: 0, y: 0 }, Dir::N));
+        // Every tile it covers is its own, and erasing any of them takes it all away.
+        assert_eq!(b.cell(Pos { x: 6, y: 1 }), Cell::Part(i));
+        assert!(b.erase(Pos { x: 4, y: 0 }));
+        assert!((0..8).all(|x| (0..8).all(|y| b.cell(Pos { x, y }) == Cell::Empty)));
+    }
+
+    #[test]
+    fn a_chip_only_turns_where_there_is_room() {
+        let chip = Kind::Chip(Chip::Cd4011);
+        let mut b = Board::new(8, 3);
+        let i = b.place(chip, Pos { x: 0, y: 0 }, Dir::W, false).unwrap();
+        assert!(!b.turn(i, Dir::N), "seven tall won't fit in three");
+        assert!(b.turn(i, Dir::E));
+        assert_eq!(b.parts[i].pin_ports()[0], (Pos { x: 6, y: 0 }, Dir::N));
+        b.place(Kind::Resistor { ohms: 1e3, watts: 0.25 }, Pos { x: 7, y: 2 }, Dir::W, false).unwrap();
+        assert!(b.place(chip, Pos { x: 1, y: 1 }, Dir::W, false).is_none(), "overlaps");
+    }
+
+    #[test]
+    fn copper_meets_a_chip_only_at_its_legs() {
+        let mut b = Board::new(8, 4);
+        b.place(Kind::Chip(Chip::Cd4011), Pos { x: 0, y: 1 }, Dir::W, false).unwrap();
+        // Pin 14 faces north from the top left tile; pin 13 from the next. No legs on the ends.
+        assert!(b.connect(Pos { x: 0, y: 0 }, Dir::S));
+        assert!(!b.connect(Pos { x: 7, y: 1 }, Dir::W));
+        let n = Netlist::build(&b);
+        assert_eq!(n.pin_net[0].len(), 14);
+        assert_eq!(n.net_at(&b, Pos { x: 0, y: 0 }, Dir::S), Some(n.pin_net[0][13]));
+    }
+
+    #[test]
+    fn a_text_board_draws_a_chip_by_repeating_its_letter() {
+        let b = Board::parse(&["IIIIIII", "IIIIIII"], &[('I', Kind::Chip(Chip::Cd4011), Dir::W)]).unwrap();
+        assert_eq!(b.parts.len(), 1);
+        assert_eq!(b.parts[0].label, "IC1");
+        assert!(Board::parse(&["IIIIII", "IIIIII"], &[('I', Kind::Chip(Chip::Cd4011), Dir::W)]).is_err(), "too small");
     }
 
     #[test]

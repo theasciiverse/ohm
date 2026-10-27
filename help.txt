@@ -65,6 +65,6 @@ The DATASHEET is the card of the part under the cursor, or of the part in hand.
 
 # When things burn
 
-Too much current burns a resistor or an LED, just as on a real bench. A big capacitor (an electrolytic) has a + leg and a striped - side: put in backwards, or on more than its rated voltage, it vents. A relay's coil cooks on much more than its rated voltage. A transistor fed straight into its base, with no resistor, burns; so does a diode with nothing else to limit its current. Nothing is lost: f or MEND puts the burnt parts back, and the test bench's hints say what went wrong.
+Too much current burns a resistor or an LED, just as on a real bench. A big capacitor (an electrolytic) has a + leg and a striped - side: put in backwards, or on more than its rated voltage, it vents. A relay's coil cooks on much more than its rated voltage. A transistor fed straight into its base burns, and so do a diode with nothing to limit it and a chip powered backwards. Nothing is lost: f or MEND puts the burnt parts back, and the test bench's hints say what went wrong.
 
 The Master's Notebook (n) explains the electronics behind every job, with example circuits you can switch and measure.

@@ -36,7 +36,7 @@
 //! turn clockwise (anticlockwise with `flip`).
 
 use crate::bench::{Case, Check};
-use crate::circuit::{Board, Colour, Dir, Kind};
+use crate::circuit::{Board, Chip, Colour, Dir, Kind};
 
 /// The jobs, in order, compiled in.
 pub const JOBS: &[(&str, &str)] = &[
@@ -73,6 +73,7 @@ pub const JOBS: &[(&str, &str)] = &[
     ("occupied-sign", include_str!("../jobs/31-occupied-sign.txt")),
     ("crossing-lights", include_str!("../jobs/32-crossing-lights.txt")),
     ("quiz-timer", include_str!("../jobs/33-quiz-timer.txt")),
+    ("boathouse-alarm", include_str!("../jobs/34-boathouse-alarm.txt")),
 ];
 
 /// The sandbox's id, for the save file.
@@ -211,6 +212,7 @@ pub fn kind(words: &[&str]) -> Result<(Kind, usize), String> {
             _ => (Kind::Pot { ohms: arg(1)?, turn: 0.5 }, 2),
         },
         Some("diode") => (Kind::Diode, 1),
+        Some("cd4011") => (Kind::Chip(Chip::Cd4011), 1),
         Some("npn") => match words.get(1).copied() {
             Some("flip") => (Kind::Npn { flip: true }, 2),
             _ => (Kind::Npn { flip: false }, 1),
@@ -255,6 +257,7 @@ pub fn kind_words(k: Kind) -> String {
         Kind::Relay { volts, nc } => format!("relay {volts}{}", if nc { " nc" } else { "" }),
         Kind::Diode => "diode".into(),
         Kind::Npn { flip } => if flip { "npn flip".into() } else { "npn".into() },
+        Kind::Chip(Chip::Cd4011) => "cd4011".into(),
     }
 }
 
@@ -508,7 +511,7 @@ impl Job {
         drawer.extend([Kind::Ldr { lux: 100.0 }, Kind::Ntc { celsius: 20.0 }, Kind::Pot { ohms: 10e3, turn: 0.5 }, Kind::Pot { ohms: 1e3, turn: 0.5 }]);
         drawer.extend([0.5, 2.0, 5.0].map(|amps| Kind::Fuse { amps }));
         drawer.extend([Kind::Switch { closed: false }, Kind::Button { held: false, nc: false }, Kind::Button { held: false, nc: true }]);
-        drawer.extend([Kind::Diode, Kind::Npn { flip: false }]);
+        drawer.extend([Kind::Diode, Kind::Npn { flip: false }, Kind::Chip(Chip::Cd4011)]);
         // Relays at the coil voltages the batteries give, normally open and normally closed.
         for volts in [5.0, 9.0, 12.0] {
             drawer.extend([Kind::Relay { volts, nc: false }, Kind::Relay { volts, nc: true }]);
@@ -1171,6 +1174,67 @@ mod tests {
         assert_eq!(with(&rows, 82e3, 220e-6)[2], false, "far too long");
         let bare = [".┌─┬─┬─┬─┐", ".R.T.P.V.│", ".L.│.│.M.│", ".├Kx─┤.│.B", ".│.├─xC┤.│", ".Q─┘.└─q.│", ".└─────┴─┘"];
         assert_ne!(with(&bare, 82e3, 100e-6), [true; 5], "the button straight to the base");
+    }
+
+    #[test]
+    fn boathouse_alarm_wants_a_nand_as_not_with_a_big_pull_up() {
+        let master = [
+            "┌┬──────┬┐",
+            "P│......││",
+            "│IIIIIII││",
+            "│IIIIIII│B",
+            "└┴┤└─RLx┘│",
+            "..S....│.│",
+            "..└────┴─┘",
+        ];
+        let legend = |pull: f64| {
+            vec![
+                ('B', BAT9, Dir::N),
+                ('S', Kind::Switch { closed: true }, Dir::N),
+                ('L', RED, Dir::E),
+                ('P', R(pull), Dir::N),
+                ('R', R(470.0), Dir::W),
+                ('I', Kind::Chip(Chip::Cd4011), Dir::W),
+            ]
+        };
+        assert_eq!(solve(33, &master, &legend(1e6)), [true; 3]);
+        // No pull-up: the inputs float, keep their last level, and the lamp never lights.
+        let mut bare = master;
+        bare[1] = ".│......││";
+        bare[2] = ".IIIIIII││";
+        bare[3] = ".IIIIIII│B";
+        bare[4] = ".┴┤└─RLx┘│";
+        bare[0] = ".┌──────┬┐";
+        assert_eq!(solve(33, &bare, &legend(1e6)), [true, false, true]);
+        // Smaller pull-ups work but drain the battery.
+        let job = Job::load(33);
+        let board = |pull: f64| {
+            let rows: Vec<String> = master.iter().map(|r| r.replace('.', " ")).collect();
+            let refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+            let mut b = crate::circuit::Board::parse(&refs, &legend(pull)).unwrap();
+            for p in &mut b.parts {
+                p.fixed = matches!(p.label.as_str(), "BT1" | "SW1" | "LED1");
+            }
+            b
+        };
+        let par = job.par().hours.unwrap();
+        assert!(par > 50_000.0, "{par} h");
+        for pull in [10e3, 100e3] {
+            assert_eq!(solve(33, &master, &legend(pull)), [true; 3]);
+            assert!(job.score(&board(pull)).hours.unwrap() < par / 5.0, "{pull}");
+        }
+        // No chip: the LED and its resistor across the door contact. It works, all season long.
+        let hack = ["........┌┐", "........│R", "........││", "........│B", "..┌┐.┌L┬┘│", "..S└─x─┘.│", "..└──┴───┘"];
+        let hack_legend = [('B', BAT9, Dir::N), ('S', Kind::Switch { closed: true }, Dir::N), ('L', RED, Dir::E), ('R', R(470.0), Dir::N)];
+        assert_eq!(solve(33, &hack, &hack_legend), [true; 3]);
+        let rows: Vec<String> = hack.iter().map(|r| r.replace('.', " ")).collect();
+        let refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+        let mut b = crate::circuit::Board::parse(&refs, &hack_legend).unwrap();
+        for p in &mut b.parts {
+            p.fixed = p.label != "R1";
+        }
+        let hours = job.score(&b).hours.unwrap();
+        assert!(hours < 50.0, "{hours} h");
     }
 
     #[test]

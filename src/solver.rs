@@ -45,6 +45,18 @@ pub const RELAY_RELEASE: f64 = 0.005;
 pub const RELAY_WATTS: f64 = 0.36;
 pub const RELAY_MAX: f64 = 1.3;
 const COIL_TAU: f64 = 2.0;
+/// A CMOS gate's output, after TI's CD4011B datasheet (SCHS021D): typically 1 mA at 0.4 V from
+/// a 5 V supply and 2.6 mA at 0.5 V from 10 V, sinking or sourcing, which is 400 and 190 ohms;
+/// `GATE_OHM_VOLTS / supply` fits both. 100 mW is the sheet's limit for each output
+/// transistor; past it the gate heats (0.5 s, chosen) and burns at 1.5 times (chosen). The
+/// supply's absolute limits are -0.5 V and 20 V.
+const GATE_OHM_VOLTS: f64 = 2000.0;
+const GATE_WATTS: f64 = 0.1;
+pub const CMOS_MAX_VOLTS: f64 = 20.0;
+/// Each CMOS input's capacitance, farads (the sheet's typical 5 pF): with the solver's tiny
+/// leak to ground, an input left unconnected keeps its last level for seconds, as a real one
+/// does.
+pub const CMOS_INPUT_FARADS: f64 = 5e-12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Node(usize);
@@ -148,6 +160,11 @@ enum Kind {
     Coil { ohms: f64, volts: f64, contact: usize, nc: bool },
     /// Collector `a`, emitter `b`, base `mid`.
     Npn(Npn),
+    /// A CMOS NAND gate's output `a`, its supply's - at `b` and + at `mid`, reading the inputs
+    /// on nodes `in_a` and `in_b`: switched to + or - through the gate's output resistance.
+    /// It decides at the end of each step, so the next step sees it. `chip`: the first gate of
+    /// its package, which burns as one.
+    Nand { in_a: usize, in_b: usize, high: bool, chip: usize },
 }
 
 #[derive(Clone, Debug)]
@@ -294,6 +311,27 @@ impl Circuit {
         let id = self.add(Kind::Npn(model), c, e, false, false);
         self.parts[id.0].mid = base.0;
         id
+    }
+
+    /// One gate of a CMOS NAND package: output, two inputs, the supply's + and -. `chip` is
+    /// the package's first gate (or `None` for this one), so the package burns as one.
+    pub fn nand(&mut self, out: Node, in_a: Node, in_b: Node, vdd: Node, vss: Node, chip: Option<PartId>) -> PartId {
+        let k = self.parts.len();
+        let chip = chip.map_or(k, |c| c.0);
+        let id = self.add(Kind::Nand { in_a: in_a.0, in_b: in_b.0, high: true, chip }, out, vss, false, false);
+        self.parts[id.0].mid = vdd.0;
+        id
+    }
+
+    /// A gate's output is high.
+    pub fn gate_high(&self, id: PartId) -> bool {
+        matches!(self.parts[id.0].kind, Kind::Nand { high: true, .. })
+    }
+
+    pub fn set_gate_high(&mut self, id: PartId, on: bool) {
+        if let Kind::Nand { high, .. } = &mut self.parts[id.0].kind {
+            *high = on;
+        }
     }
 
     /// A transistor's base current, into the base.
@@ -462,6 +500,7 @@ impl Circuit {
             }
         }
         self.move_contacts(dt);
+        self.switch_gates();
         self.time += dt;
         Ok(())
     }
@@ -493,6 +532,22 @@ impl Circuit {
         }
     }
 
+    /// Every gate reads its inputs against half its supply and sets its output for the next
+    /// step. The CD4011B has no hysteresis; its sheet guarantees low below 30 % of the supply
+    /// and high above 70 %, and switches about halfway.
+    fn switch_gates(&mut self) {
+        let x = &self.x;
+        for p in &mut self.parts {
+            let supply = vdiff(x, p.mid, p.b);
+            if let Kind::Nand { in_a, in_b, high, .. } = &mut p.kind {
+                let a = vdiff(x, *in_a, p.b) > supply / 2.0;
+                let b = vdiff(x, *in_b, p.b) > supply / 2.0;
+                *high = !(a && b);
+                p.cap_v = supply;
+            }
+        }
+    }
+
     /// Heats every part toward its load; true if anything burnt open.
     fn heat_up(&mut self, dt: f64) -> bool {
         let mut any = false;
@@ -519,10 +574,31 @@ impl Circuit {
                 // Heat by power or by collector current, whichever is further past its rating;
                 // like a resistor it burns at twice (chosen).
                 Kind::Npn(q) => ((p.power / q.watts).max(p.current.abs() / q.i_max), 0.5, 2.0),
+                // A gate by its output's power; a supply past the absolute limits, or
+                // backwards, burns the package at once.
+                Kind::Nand { .. } => {
+                    let supply = vdiff(x, p.mid, p.b);
+                    let abused = !(-0.5..=CMOS_MAX_VOLTS).contains(&supply);
+                    (if abused { 100.0 } else { p.power / GATE_WATTS }, 0.5, 1.5)
+                }
                 _ => continue,
             };
             p.heat += (load - p.heat) * (1.0 - (-dt / tau).exp());
             if p.heat >= limit {
+                p.burnt = true;
+                any = true;
+            }
+        }
+        // A package burns as one.
+        let burnt_chips: Vec<usize> = self.parts.iter().filter_map(|p| match p.kind {
+            Kind::Nand { chip, .. } if p.burnt => Some(chip),
+            _ => None,
+        }).collect();
+        for p in &mut self.parts {
+            if let Kind::Nand { chip, .. } = p.kind
+                && !p.burnt
+                && burnt_chips.contains(&chip)
+            {
                 p.burnt = true;
                 any = true;
             }
@@ -673,6 +749,10 @@ impl Circuit {
                     m.isource(c, b, q.cbc / dt * p.cap_v2);
                 }
             }
+            Kind::Nand { high, .. } => {
+                let rail = if high { p.mid } else { p.b };
+                m.g(p.a, rail, 1.0 / gate_ohms(p.cap_v));
+            }
             Kind::Capacitor { farads, .. } => {
                 if let Mode::Step(dt) = mode {
                     let g = farads / dt;
@@ -701,6 +781,8 @@ impl Circuit {
                     }
                     Kind::Led(led) => (v - vdiff(x, p.mid, p.b)) / led.rs,
                     Kind::Npn(_) => 0.0,
+                    // Out of the output pin: from + when high, back into - (negative) when low.
+                    Kind::Nand { high, .. } => vdiff(x, if high { p.mid } else { p.b }, p.a) / gate_ohms(p.cap_v),
                     Kind::Capacitor { farads, .. } => match mode {
                         Mode::Step(dt) => farads / dt * (v - p.cap_v),
                         Mode::Dc => 0.0,
@@ -719,9 +801,15 @@ impl Circuit {
             }
             p.base = 0.0;
             p.current = i;
-            p.power = v * i;
+            p.power = if let Kind::Nand { .. } = p.kind { i * i * gate_ohms(p.cap_v) } else { v * i };
         }
     }
+}
+
+/// A CMOS gate's output resistance on a supply of `volts` (taken from the last step, so it
+/// doesn't move under Newton); below 3 V, the sheet's minimum, as at 3 V.
+fn gate_ohms(volts: f64) -> f64 {
+    GATE_OHM_VOLTS / volts.max(3.0)
 }
 
 /// Voltage of node `a` minus node `b` in a solution vector.
@@ -1352,6 +1440,120 @@ mod tests {
         }
         let (i1, i2) = (c.current(l1), c.current(l2));
         assert!(i1.min(i2) < 1e-4 && i1.max(i2) > 0.010, "{i1} {i2}");
+    }
+
+    /// A NAND gate on a 9 V battery with each input tied to + or -, its output into `load` ohms
+    /// to -. Returns the output voltage after a few steps, and the gate.
+    fn nand_out(a: bool, b: bool, load: f64) -> (f64, Circuit, PartId) {
+        let mut c = Circuit::new();
+        let (vdd, out) = (c.node(), c.node());
+        c.battery(vdd, GROUND, 9.0, 0.0);
+        let pick = |on: bool| if on { vdd } else { GROUND };
+        let g = c.nand(out, pick(a), pick(b), vdd, GROUND, None);
+        c.resistor(out, GROUND, load);
+        for _ in 0..5 {
+            c.step(0.001).unwrap();
+        }
+        (c.voltage(out), c, g)
+    }
+
+    #[test]
+    fn a_nand_gate_is_low_only_with_both_inputs_high() {
+        for (a, b) in [(false, false), (false, true), (true, false), (true, true)] {
+            let (v, ..) = nand_out(a, b, 1e6);
+            let want = if a && b { 0.0 } else { 9.0 };
+            close(v, want, 0.01);
+        }
+    }
+
+    #[test]
+    fn a_cmos_output_has_the_datasheets_resistance() {
+        // CD4011B, typical: 2.6 mA at 0.5 V below a 10 V supply, about 190 ohms. On 9 V, 222.
+        let (v, c, g) = nand_out(false, false, 1000.0);
+        close(v, 9.0 * 1000.0 / 1222.2, 0.01);
+        close(c.current(g), v / 1000.0, 1e-6);
+    }
+
+    #[test]
+    fn a_shorted_cmos_output_burns_but_a_led_load_does_not() {
+        // A short on 9 V puts 365 mW in the output, past the sheet's 100 mW.
+        let (_, mut c, g) = nand_out(false, false, 0.01);
+        for _ in 0..2000 {
+            c.step(0.001).unwrap();
+        }
+        assert!(c.burnt(g));
+        let (_, mut c, g) = nand_out(false, false, 470.0);
+        for _ in 0..2000 {
+            c.step(0.001).unwrap();
+        }
+        assert!(!c.burnt(g), "{}", c.heat(g));
+    }
+
+    #[test]
+    fn a_cmos_chip_powered_backwards_burns_whole() {
+        let mut c = Circuit::new();
+        let (vdd, out) = (c.node(), c.node());
+        c.battery(GROUND, vdd, 9.0, 0.0);
+        let first = c.nand(out, GROUND, GROUND, vdd, GROUND, None);
+        let second = c.nand(out, GROUND, GROUND, vdd, GROUND, Some(first));
+        for _ in 0..200 {
+            c.step(0.001).unwrap();
+        }
+        assert!(c.burnt(first) && c.burnt(second));
+    }
+
+    #[test]
+    fn a_floating_cmos_input_keeps_its_level_for_seconds() {
+        // Input A held at + through a switch, input B at +; open the switch and A, with only
+        // its 5 pF and the tiny leak, stays high a while: the output stays low.
+        let mut c = Circuit::new();
+        let (vdd, out, a) = (c.node(), c.node(), c.node());
+        c.battery(vdd, GROUND, 9.0, 0.0);
+        let sw = c.switch(vdd, a, true);
+        c.capacitor(a, GROUND, CMOS_INPUT_FARADS);
+        let g = c.nand(out, a, vdd, vdd, GROUND, None);
+        c.resistor(out, GROUND, 1e6);
+        for _ in 0..10 {
+            c.step(0.001).unwrap();
+        }
+        assert!(!c.gate_high(g));
+        c.set_switch(sw, false);
+        for _ in 0..1000 {
+            c.step(0.001).unwrap();
+        }
+        assert!(!c.gate_high(g), "still low a second later: {} V", c.voltage(a));
+    }
+
+    #[test]
+    fn two_nand_gates_cross_coupled_remember() {
+        // An S-R latch: each output into one input of the other gate, the free inputs held
+        // high by 100k, a switch pulling one low sets or resets it.
+        let mut c = Circuit::new();
+        let vdd = c.node();
+        let (q, nq, s, r) = (c.node(), c.node(), c.node(), c.node());
+        c.battery(vdd, GROUND, 9.0, 0.0);
+        c.resistor(vdd, s, 100e3);
+        c.resistor(vdd, r, 100e3);
+        let set = c.switch(s, GROUND, false);
+        let reset = c.switch(r, GROUND, false);
+        let a = c.nand(q, s, nq, vdd, GROUND, None);
+        c.nand(nq, r, q, vdd, GROUND, Some(a));
+        let run = |c: &mut Circuit| {
+            for _ in 0..20 {
+                c.step(0.001).unwrap();
+            }
+        };
+        run(&mut c);
+        c.set_switch(set, true);
+        run(&mut c);
+        c.set_switch(set, false);
+        run(&mut c);
+        assert!(c.voltage(q) > 8.9 && c.voltage(nq) < 0.1, "set and held");
+        c.set_switch(reset, true);
+        run(&mut c);
+        c.set_switch(reset, false);
+        run(&mut c);
+        assert!(c.voltage(q) < 0.1 && c.voltage(nq) > 8.9, "reset and held");
     }
 
     #[test]

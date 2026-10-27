@@ -7,11 +7,11 @@ embedded nodal-analysis solver decides what the circuit actually does. The arc r
 (a torch) through relays and logic to a small programmable chip. In the family of SHENZHEN I/O,
 Retro Gadgets and Turing Complete (see Inspiration), with a real analog solver as its own heart.
 
-**Status** (2026-10-10): chapters 1 to 5 and the first three jobs of 6 playable from a launch page (version 1 is chapters 1
+**Status** (2026-10-10): chapters 1 to 5 and the first four jobs of 6 playable from a launch page (version 1 is chapters 1
 to 3; chapters 4, relays, and 5, diodes and transistors, were built overnight 2026-10-09 to 10
 while David slept, not yet seen by him; chapter 6's blinker and one-shot followed on
-2026-10-10): thirty-three jobs that unlock one after another, each with
-ticks against the old master's par, the Master's Notebook with twenty-eight checked pages (the meter and scope read its example circuits), the card binder, the
+2026-10-10, and the first chip, a CD4011, the same day): thirty-four jobs that unlock one after another, each with
+ticks against the old master's par, the Master's Notebook with twenty-nine checked pages (the meter and scope read its example circuits), the card binder, the
 sandbox, help on F1, panels that grow, a save file. David has played the first job and tried
 the sandbox; the rest is covered by tests and headless shots, not yet by a person. Sound is in but not yet heard. Own git repo, private at github.com/theasciiverse/ohm (2026-10-09).
 
@@ -313,7 +313,8 @@ job ledger.
 | Relay | one tile, four legs: the coil along its facing, one contact across, normally open or normally closed (NC). The coil is a resistance from its power (0.36 W: 70 Ω at 5 V, 225 Ω at 9 V, 400 Ω at 12 V); it pulls in at 75 % of its rating and drops out at 5 %, after 8 ms and 5 ms; past 130 % the coil heats (2 s time constant, chosen) and burns open. All from Sanyou's SRD series datasheet (V3.2), taking its limits as the values. The contact moves at the end of a step, so a relay through its own NC contact buzzes (77 Hz). A rebuild keeps every relay's state, by tile. A red stop button (closed until pressed) came with it | 4 (built) |
 | Diode | the LED model with a 1N4001's numbers: the Motorola databook's SPICE model (IS 14.11 nA, N 1.984, RS 33.9 mΩ: 0.69 V at 10 mA, 0.96 V at 1 A against Vishay's 1.1 V maximum); rated 1 A, burns at 3 A held (chosen); no reverse breakdown (50 V, past every battery here) | 5 (built) |
 | NPN transistor | BC547B by the Ebers-Moll transport model, solved by Newton with junction limiting on both junctions: IS 2.39e-14, BF 294, BR 7.95 (NXP's SPICE model, as posted on EEVblog; BF matches onsemi's typical hFE 290), 625 mW and 100 mA (onsemi), heating by power or collector current like a resistor; its junction capacitances (10 pF and 1.7 pF, onsemi typical) are in, because without them a circuit that flips itself over (a two-transistor blinker) would have to flip in no time and Newton can't follow. A step Newton can't settle is split in halves, down to about a nanosecond. One tile, three legs: collector toward its facing, emitter opposite, base a quarter turn clockwise, like a pot's wiper, or anticlockwise with its legs bent the other way (`e` or a click; `npn flip` in job files), which a symmetric two-transistor circuit needs. Each transistor added has a saturation current 1 % above the last (chosen; real spread is far wider), and a freshly built circuit starts with nanosecond steps growing a tenth at a time: backward Euler at 1 ms damps the fast tipping of a flip-flop and would hold it balanced half on, half off. A rebuild keeps each transistor's junction state, so an edit doesn't make a flip-flop forget | 5 (built) |
-| Logic gate ICs, 7-segment display | behavioural, powered implicitly | 6 |
+| Logic chip (CD4011, built) | four CMOS NAND gates in a 14-pin package spanning 7 by 2 tiles, powered through its own pins (+ on 14, - on 7) like any other part (David, 2026-10-10). Each gate's output joins + or - through 2000 Ω V / supply (TI's CD4011B sheet, SCHS021D: 1 mA at 0.4 V from 5 V, 2.6 mA at 0.5 V from 10 V, typical); an input reads high above half the supply (no hysteresis, as the sheet's transfer curve), takes no current, and has its 5 pF, so with the solver's tiny leak an input wired to nothing keeps its level for seconds. An output past 100 mW (the sheet's limit per output transistor) heats and burns at 1.5 times (chosen); a supply backwards or past 20 V burns the package at once. Gates decide at the end of each 1 ms step, so each gate adds a step of delay (the real one is 60 ns). Not modelled: the input protection diodes (an input driven past the supply passes no current here) and the quiescent current (0.01 µA typical). A rebuild keeps each gate's state, so an edit doesn't make a latch forget | 6 |
+| Counter, 7-segment display | behavioural chips on the same footprint, next | 6 |
 | Programmable chip | behavioural: reads and drives its pins each step, running a tiny assembly program | 7 |
 
 No AC mains, no inductors as player parts.
@@ -475,7 +476,7 @@ terminal shows more desk round it, never a bigger title).
 
 One card per kind of part (`BINDER` in `src/app.rs`: battery, bench supply, LED, lamp,
 resistor, capacitor, slide switch, push button, fuse, pot, LDR, thermistor, relay, diode,
-transistor; the stop button shares the push button's card), an overlay with
+transistor, logic chip; the stop button shares the push button's card), an overlay with
 the list on the left like the Notebook. Opened with `b` at the part under the cursor or in hand,
 or from the BINDER label in the datasheet's border. A card is collected once an arrived job uses
 that part, or it is on the sandbox board; the standlight brings the capacitor, and the sandbox is
@@ -493,8 +494,8 @@ sandbox should have every part, not only the ones the jobs have shown). The cata
 colours, both lamps, E12 resistors from 10 Ω to 100 kΩ plus the café sign's power resistors,
 a 100 nF ceramic and electrolytics from 10 µF 25 V to 4700 µF 16 V (and one 1000 µF 6.3 V, to
 find out what a rating means), the pot, LDR, thermistor and fuses, a slide switch, a push
-button and a stop button, relays at 5, 9 and 12 V, normally open and closed, a 1N4001 diode
-and a BC547 transistor. Names read as printed on
+button and a stop button, relays at 5, 9 and 12 V, normally open and closed, a 1N4001 diode,
+a BC547 transistor and a CD4011. Names read as printed on
 real parts ("2.2 kΩ", "1000 µF", lamps by voltage). Its board is saved as `sandbox` and kept
 apart from the jobs'; Continue on
 the launch page goes back to the job it left. For trying things, for children who just want to
@@ -597,7 +598,16 @@ collector takes a little of the collector's fall; the Notebook says "a little un
 | Crossing lights | Mr Nilsson, model railway | a blinker: capacitors in both cross links | 82k and 10 µF (0.98 flashes a second) | 68k (1.18), 100k (0.81), 100 µF ten times too slow |
 | Quiz timer | Elsa, 8 | a one-shot: a capacitor in one cross link, a 47k resistor in the other, the button feeding Q2's base through 10k | 82k and 100 µF (green 5.05 s after letting go) | 68k (4.2 s), 100k (over 6 s), 47 and 220 µF, the button straight to the base burns Q2 |
 
-Chips (gates, a counter, a 7-segment display) are David's to shape with the chip proposal below.
+| Boathouse alarm | Mr Holm, the harbour | the first chip: power on its pins, a NAND with its inputs tied is a NOT, a pull-up, why CMOS: it sips | a CD4011, a 1 MΩ pull-up, 470 Ω for the LED (9 µA shut: 69,000 hours on a 9 V block) | no pull-up (the inputs float and stay low), 10k and 100k drain the battery, the LED across the door contact with no chip works but wastes 19 mA (misses the battery tick), the LED to - lights the wrong way |
+
+Chips are real parts spanning several tiles, powered through their own pins (David, 2026-10-10):
+a chip faces the way its notch points; facing north it stands as in its datasheet's top view,
+pins 1 to 7 down the left and 8 to 14 back up the right, and it turns (`r`) where it has room.
+Placed from the cursor, right and down, on empty holes. In a job file a chip is drawn by
+repeating its letter over its tiles (`cd4011` in the legend). The bench names a chip with no
+power and an input of a gate in use that reaches nothing but other inputs. Next: a counter
+(CD4017) and a 7-segment display with its driver (CD4511), each checked against its datasheet
+first.
 
 The launch page's shelf turns a page per chapter (`<` and `>` on the plank, or left and right)
 when the terminal can't show every gadget; a wide one shows them all.
@@ -669,7 +679,8 @@ Each step is seen working before the next starts. Nothing here needs a repo unti
 8. [ ] Later: relays (chapter 4 built 2026-10-09: the relay and the stop button, `blinks`, six
        jobs, four Notebook pages, relay hints, clack and buzz sounds), semiconductors (chapter 5
        built 2026-10-10: the diode and the transistor, six jobs, four pages, their hints),
-       logic (chapter 6 begun 2026-10-10: the flip-flop, the blinker and the one-shot, three pages),
+       logic (chapter 6 begun 2026-10-10: the flip-flop, the blinker and the one-shot, three pages;
+       then chips spanning tiles, the CD4011, the boathouse alarm and its page),
        the chip. The sandbox desk: built 2026-10-09.
 
 ## Open decisions
@@ -682,8 +693,11 @@ Each step is seen working before the next starts. Nothing here needs a repo unti
 - [ ] Desk layout and board size at 100x30
 - [x] Scope: version 1 is chapters 1 to 3, about 18 jobs (David, 2026-10-09)
 - [x] Scope trace: half-block, the house style, no Braille exception (David, 2026-10-09)
-- [ ] The chip's language: instruction set, pin model, program size limit. Proposed 2026-10-09
-      (below); David liked the direction, details still his to confirm.
+- [x] The chip's language: the proposal below (David, 2026-10-10: "I do like it").
+- [x] Logic chips are real packages spanning several tiles, with power wired to their pins
+      (David, 2026-10-10). Built for the CD4011.
+- [x] The programmable chip's program lives in a panel that switches with the drawers (David,
+      2026-10-10, below).
 - [x] A sandbox desk: yes, built (David, 2026-10-09)
 - [x] Board type: perfboard throughout (David, 2026-10-09)
 - [x] Name: Ohm's Workshop, short id `ohm` (David, 2026-10-08)
@@ -710,3 +724,14 @@ For chapter 7. In SHENZHEN I/O's spirit (its MC4000 has 9 lines and one register
   how real ones work and a better puzzle.
 
 A blinker on `p0` is four lines: `mov 1 p0`, `slp 500`, `mov 0 p0`, `slp 500`.
+
+**The program panel** (David asked, 2026-10-10): the drawers' panel switches between DRAWERS
+and CHIP (click either word in its title, or a key; clicking a chip on the board switches to
+it), so the board stays in view while you write and the chip's legs change colour as it runs.
+About 23 by 18 at 100x30: the ten lines with numbers and `+`/`-` marks take about 16 columns,
+leaving rows for the live state (`acc`, `dat`, the pins, the line running). Writing needs its
+own mode, since every letter is a desk key: a click in the program or Enter on a chip starts
+typing (the border lights), Esc stops, and the circuit keeps running. Clicking the title grows
+the panel down the right column like the others (the datasheet folds), with room for comments
+beside the code; at its smallest the comments are hidden, not wrapped. With two chips it
+shows the one last clicked.
