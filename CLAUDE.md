@@ -7,8 +7,7 @@ embedded nodal-analysis solver decides what the circuit actually does. The arc r
 (a torch) through relays and logic to a small programmable chip. In the family of SHENZHEN I/O,
 Retro Gadgets and Turing Complete (see Inspiration), with a real analog solver as its own heart.
 
-**Status** (2026-10-10): chapters 1 to 5 and the first four jobs of 6 playable from a launch page (version 1 is chapters 1
-to 3; chapters 4, relays, and 5, diodes and transistors, were built overnight 2026-10-09 to 10
+**Status** (2026-10-10): chapters 1 to 5 and the first four jobs of 6 playable from a launch page (everything built ships at launch, David 2026-10-27; chapters 4, relays, and 5, diodes and transistors, were built overnight 2026-10-09 to 10
 while David slept, not yet seen by him; chapter 6's blinker and one-shot followed on
 2026-10-10, and the first chip, a CD4011, the same day): thirty-four jobs that unlock one after another, each with
 ticks against the old master's par, the Master's Notebook with twenty-nine checked pages (the meter and scope read its example circuits), the card binder, the
@@ -691,7 +690,8 @@ Each step is seen working before the next starts. Nothing here needs a repo unti
 - [x] Setting: a small Nordic town, early 1980s, prices in kronor (David, 2026-10-09)
 - [x] Realism: real units and E12 values throughout (David, 2026-10-09)
 - [ ] Desk layout and board size at 100x30
-- [x] Scope: version 1 is chapters 1 to 3, about 18 jobs (David, 2026-10-09)
+- [x] Scope: everything built ships at launch (David, 2026-10-27), replacing
+      "version 1 is chapters 1 to 3, about 18 jobs" (2026-10-09)
 - [x] Scope trace: half-block, the house style, no Braille exception (David, 2026-10-09)
 - [x] The chip's language: the proposal below (David, 2026-10-10: "I do like it").
 - [x] Logic chips are real packages spanning several tiles, with power wired to their pins
