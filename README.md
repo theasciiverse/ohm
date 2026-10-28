@@ -4,17 +4,18 @@
 
 Welcome to Ohms Verkstad, the little electronics repair shop the whole town
 still calls Ohm's. It's the early eighties, you're the new apprentice, and the
-inbox is filling up: Mrs Berg's bike lamp eats batteries, Elsa (eight) wants
-her doll's house lit, Mr Holm needs a lighthouse flasher for the harbour. Pull
-open the parts drawers, lay the copper and watch the circuit come alive while
-you build it: current ripples through the traces, LEDs glow, relays click.
-Get it wrong and resistors smoke and capacitors go BANG; one key puts the burnt
-parts back. Then the test bench decides, and you try to match the old master's
-own build.
+inbox is filling up: Mrs Berg's bike lamp keeps blowing its bulb, Elsa (eight)
+wants her doll's house lit, the harbour club's model lighthouse has to flash.
+Pull open the parts drawers, lay the copper and watch the circuit come alive
+while you build it: current ripples through the traces, LEDs glow, relays
+click. Get it wrong and resistors smoke and capacitors vent with a crack; one
+key puts the burnt parts back. Then the test bench decides, and you try to
+match the old master's own build.
 
-A real circuit solver underneath (real volts, milliamps, parts and kronor),
-from a bike lamp to your first chip, with the Master's Notebook, a multimeter,
-a scope and a sandbox. No timer, no pressure. Don't let the magic smoke out!
+A real circuit solver underneath (real volts, milliamps, parts and kronor), 34
+jobs from a bike lamp to your first chip, with the Master's Notebook, a
+multimeter, a scope and a sandbox. No timer, no pressure. Don't let the magic
+smoke out!
 
 ## Play
 
@@ -33,18 +34,21 @@ Mouse and keyboard work together: point at a part and press a key to act on it.
 
 | Key | |
 |---|---|
-| arrows, W A S D, H J K L | move the cursor; with Shift, lay copper |
+| arrows | move the cursor; with Shift, lay copper |
+| C | lay copper with plain arrows; C again stops |
 | mouse drag / click / right click | lay copper / place a part / erase |
-| Space / R / X, Del | place / rotate / erase |
-| Tab, 1 to 9 | pick a drawer |
+| middle drag | move round the workbench |
+| Space, Enter / R / X, Del | place / rotate / erase |
+| Tab, 0 to 9 / D | pick a drawer (0 is copper) / every drawer as cards |
 | E | operate the part under the cursor |
-| T | run the test bench |
+| P | clip the scope's probe on, or take it off |
+| T / F | run the test bench / mend burnt parts |
 | U, Ctrl+Z / Ctrl+Y | undo / redo |
+| N / B | the Master's Notebook / the card binder |
+| PgUp / PgDn | the previous / next job |
+| M | sound on or off |
 | F1, ? | help, anywhere |
-| Esc | back |
-
-Gamepad: d-pad moves, hold A to lay copper, B erases, X rotates, Y operates,
-the shoulders change drawer.
+| Esc / Ctrl+Q | back / quit |
 
 Progress is saved in `~/.local/share/ohm/progress.txt`. Session log for bug
 reports: `RUST_LOG=debug ohm 2>ohm.log`

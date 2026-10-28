@@ -383,13 +383,15 @@ either one, and you can mix them freely: the mouse moves the cursor, so a key pr
 whatever tile the pointer is over (hover a part and press R to rotate it, or hover a switch and
 press E to flip it). Neither one is the "real" input with the other added on later.
 
-- **Keyboard:** arrows/WASD/hjkl move. **Shift+move lays trace** behind the cursor. Space places
+- **Keyboard:** arrows move (WASD and hjkl were planned, but `d`, `s`, `h` and others are
+  taken by desk keys, so only the arrows are built; checked 2026-10-28). **Shift+move lays trace** behind the cursor. Space places
   the selected part, R rotates, X/Del erases, Tab or 1-9 picks a drawer slot, E operates the part
   under the cursor (flip a switch, hold a button, turn a pot), U/Ctrl-Z undo, Ctrl-Y redo, T test
   bench, Esc back. **No bare `q` quit.**
 - **Mouse:** drag lays trace, click places, right click erases, click flips a switch, wheel turns
   a pot. Inbox, drawers, binder and buttons are clickable.
-- **Gamepad** (gilrs, SDL-mapped pads only): D-pad moves, hold A lays trace, B erases, shoulders
+- **Gamepad** (planned, not built: no gilrs in `Cargo.toml` as of 2026-10-28; the store page
+  and README promised it until then): D-pad moves, hold A lays trace, B erases, shoulders
   cycle the drawer, X rotates, Y operates.
 - **Discoverable:** a hint row always shows the keys for the current context, the drawers show
   every part you have, and every change can be undone.
