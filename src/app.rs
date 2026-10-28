@@ -897,6 +897,14 @@ impl App {
             self.quit = true;
             return;
         }
+        // A pad's B erases on the desk and backs out of everything else; holding A while moving
+        // lays copper on the desk and only moves elsewhere.
+        let on_desk = self.help.is_none() && self.screen != Screen::Title && matches!(self.overlay, Overlay::None);
+        let a = match a {
+            Act::Cancel => if on_desk { Act::Erase } else { Act::Back },
+            Act::Lay(d) if !on_desk => Act::Move(d),
+            a => a,
+        };
         if matches!(a, Act::Help) {
             self.help = if self.help.is_some() { None } else { Some(0) };
             log::info!("help {}", if self.help.is_some() { "open" } else { "closed" });
@@ -1008,6 +1016,7 @@ impl App {
                 self.audio.play(Sfx::Select);
             }
             Act::Mend => self.mend(),
+            Act::Cancel => {}
             Act::Undo => self.step_undo(true),
             Act::Redo => self.step_undo(false),
             Act::Mute => self.toggle_sound(),
@@ -2300,6 +2309,23 @@ mod tests {
     }
 
     use super::build_bike_lamp;
+
+    #[test]
+    fn a_pads_b_erases_on_the_desk_and_backs_out_elsewhere() {
+        let mut a = app();
+        build_bike_lamp(&mut a);
+        let r1 = a.board.part("R1").unwrap();
+        a.cursor = a.board.parts[r1].pos;
+        a.act(Act::Drawer);
+        assert!(matches!(a.overlay, Overlay::Drawers { .. }));
+        // In the drawers, held A and a move only moves, and B closes them.
+        a.act(Act::Lay(Dir::S));
+        a.act(Act::Cancel);
+        assert!(matches!(a.overlay, Overlay::None));
+        assert!(a.board.part("R1").is_some(), "backing out erased nothing");
+        a.act(Act::Cancel);
+        assert!(a.board.part("R1").is_none(), "on the desk B erases");
+    }
 
     #[test]
     fn building_the_bike_lamp_by_keyboard_passes_and_pays() {

@@ -390,9 +390,16 @@ press E to flip it). Neither one is the "real" input with the other added on lat
   bench, Esc back. **No bare `q` quit.**
 - **Mouse:** drag lays trace, click places, right click erases, click flips a switch, wheel turns
   a pot. Inbox, drawers, binder and buttons are clickable.
-- **Gamepad** (planned, not built: no gilrs in `Cargo.toml` as of 2026-10-28; the store page
-  and README promised it until then): D-pad moves, hold A lays trace, B erases, shoulders
-  cycle the drawer, X rotates, Y operates.
+- **Gamepad** (built 2026-10-28, David asked: Asciiverse may go to the Steam Deck; the store
+  page and README had promised it before it existed): gilrs, SDL-mapped pads only
+  (`OHM_ANY_PAD=1` takes all), ignored while the terminal reports lost focus, as SIGPIPE.
+  D-pad or left stick moves with repeat; A places on release, and moving while A is held lays
+  copper instead; B erases on the desk and backs out of pages (`Act::Cancel`, resolved in
+  `App::act`); X rotates, Y operates, LB and RB change drawer, LT and RT undo and redo, Start
+  runs the test bench, Back (View) backs out. Held Back is a layer: A drawers, B binder,
+  X Notebook, Y help, LB and RB the job, LT mend, RT probe, Start mute. Mapping tested
+  without a pad (`input.rs` tests); not yet tried with a real pad. The hint row still shows
+  keyboard keys only; help lists the pad.
 - **Discoverable:** a hint row always shows the keys for the current context, the drawers show
   every part you have, and every change can be undone.
 - **Help** (David asked, built 2026-10-09): F1 or `?` anywhere, the `F1 help` label in the desk's

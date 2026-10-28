@@ -10,6 +10,11 @@ ratatui = "0.30"
 log = "0.4"
 env_logger = "0.11"
 rodio = { version = "0.22", default-features = false, features = ["playback"] }
+gilrs = { version = "0.11", optional = true }
+
+[features]
+default = ["gamepad"]
+gamepad = ["dep:gilrs"]
 
 [profile.release]
 debug = 1

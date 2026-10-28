@@ -38,6 +38,26 @@ Esc :: put down what's in hand, put back a panel, then the launch page
 Ctrl+Q :: quit
 F1, ? :: this help
 
+# Gamepad
+
+d-pad, stick :: move the cursor
+A :: place the part in hand; hold A and move to lay copper
+B :: erase at the cursor; on a page, back out
+X :: turn a part
+Y :: operate the part under the cursor
+LB, RB :: the previous or next drawer
+LT, RT :: undo, redo
+Start :: the test bench
+Back :: put down, put back, back out
+Back+A :: every drawer, as cards
+Back+B :: the card binder
+Back+X :: the Master's Notebook
+Back+Y :: this help
+Back+LB, Back+RB :: the previous or next job
+Back+LT :: mend burnt parts
+Back+RT :: clip the scope's probe on, or take it off
+Back+Start :: sound on or off
+
 # Mouse
 
 The cursor follows the mouse, so any key acts on the tile under the pointer.

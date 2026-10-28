@@ -80,10 +80,11 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> io::Result<()>
         while event::poll(deadline.saturating_duration_since(Instant::now()))? {
             input.on_event(event::read()?);
         }
+        let now = Instant::now();
+        input.poll_pads(now);
         for a in std::mem::take(&mut input.acts) {
             app.act(a);
         }
-        let now = Instant::now();
         app.update(now.duration_since(last).as_secs_f64());
         last = now;
         if now.duration_since(last_log) >= Duration::from_millis(500) {

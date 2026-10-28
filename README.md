@@ -50,6 +50,13 @@ Mouse and keyboard work together: point at a part and press a key to act on it.
 | F1, ? | help, anywhere |
 | Esc / Ctrl+Q | back / quit |
 
+Gamepad: d-pad or left stick moves, A places (hold A and move to lay copper),
+B erases (or backs out of a page), X rotates, Y operates, the shoulders change
+drawer, the triggers undo and redo, Start runs the test bench, Back backs out.
+Hold Back for the rest: with A every drawer, B the binder, X the Notebook, Y
+help, the shoulders change job, LT mends, RT clips the probe on, Start mutes.
+On Linux, gamepads need libudev1.
+
 Progress is saved in `~/.local/share/ohm/progress.txt`. Session log for bug
 reports: `RUST_LOG=debug ohm 2>ohm.log`
 
