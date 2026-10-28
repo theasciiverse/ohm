@@ -25,9 +25,6 @@ av install ohm
 av play ohm
 ```
 
-Or download the archive for your system from this repository's Releases,
-unpack it and run `./ohm`.
-
 To build it yourself: `cargo run --release` (`--mute` for no sound).
 
 ## Keys
