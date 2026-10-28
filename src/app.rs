@@ -2541,7 +2541,7 @@ mod tests {
         a.act(Act::Down(b.x + 1, b.y, false));
         assert!(a.help.is_some());
         // A terminal wide enough shows it all at once.
-        a.area = Rect::new(0, 0, 160, 45);
+        a.area = Rect::new(0, 0, 200, 45);
         assert!(!render::help_more(a.area, 0));
     }
 
