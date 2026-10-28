@@ -56,3 +56,8 @@ reports: `RUST_LOG=debug ohm 2>ohm.log`
 
 Every electronics fact is checked against a real datasheet or standard, and
 each Notebook page names its source.
+
+## Licence
+
+GNU General Public License, version 3 or (at your option) any later
+version; see [LICENSE](LICENSE).

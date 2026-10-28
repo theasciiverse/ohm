@@ -2,6 +2,7 @@
 name = "ohm"
 version = "0.1.0"
 edition = "2024"
+license = "GPL-3.0-or-later"
 description = "Asciiverse electronics desk puzzle with a real circuit solver; Rust + Ratatui"
 
 [dependencies]
